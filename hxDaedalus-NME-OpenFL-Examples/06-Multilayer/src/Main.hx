@@ -63,7 +63,7 @@ class Main extends Sprite {
 		start = subGraphs[4].portalWaypoints[3];
 		start.internal = true;	
 		var stage = Lib.current.stage;
-		stage.addEventListener( MouseEvent.MOUSE_UP, onMouseUp );
+		stage.addEventListener( MouseEvent.MOUSE_DOWN, onMouseDown );
 	}
 	
 	function createMeshLayers(bmps:Array<Bitmap>) {
@@ -126,7 +126,7 @@ class Main extends Sprite {
 		renderPathIterator.animate();
     }
 	
-    function onMouseUp( event: MouseEvent ): Void {		
+    function onMouseDown( event: MouseEvent ): Void {		
 		var stage = Lib.current.stage;
 		startRoute( stage.mouseX, stage.mouseY );
 	}

@@ -913,7 +913,7 @@ Main.prototype = $extend(openfl.display.Sprite.prototype,{
 		this.start = this.subGraphs[4].portalWaypoints[3];
 		this.start.internal = true;
 		var stage = openfl.Lib.current.stage;
-		stage.addEventListener(openfl.events.MouseEvent.MOUSE_UP,$bind(this,this.onMouseUp));
+		stage.addEventListener(openfl.events.MouseEvent.MOUSE_DOWN,$bind(this,this.onMouseDown));
 	}
 	,createMeshLayers: function(bmps) {
 		this.subGraphs = new Array();
@@ -976,7 +976,7 @@ Main.prototype = $extend(openfl.display.Sprite.prototype,{
 	,onEnterFrame: function(event) {
 		this.renderPathIterator.animate();
 	}
-	,onMouseUp: function(event) {
+	,onMouseDown: function(event) {
 		var stage = openfl.Lib.current.stage;
 		this.startRoute(stage.get_mouseX(),stage.get_mouseY());
 	}
