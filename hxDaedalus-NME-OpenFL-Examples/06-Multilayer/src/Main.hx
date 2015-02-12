@@ -132,17 +132,17 @@ class Main extends Sprite {
 	}
 		
 	function startRoute( mX: Float, mY: Float ){
-		var subGraph;
+		var subGraph = findSubGraph( mX, mY );
+		if( subGraph == null ) return;
 		if( renderPathIterator != null ){
 			var pos = renderPathIterator.currEntityPos();
 			if( pos != null ){
 				clearMeshPoint();
-				subGraph = subGraphHitTest( pos.x, pos.y );
-				start = subGraph.addMeshPoint( pos );
+				var startSubGraph = subGraphHitTest( pos.x, pos.y );
+				start = startSubGraph.addMeshPoint( pos );
 				start.internal = true;
 			}
 		}
-		subGraph = subGraphHitTest( mX, mY );
 		var end = subGraph.addMeshPoint( { x: mX, y: mY } );
 		end.internal = true;
 		path = new DA<AStarWaypoint>();
@@ -153,7 +153,17 @@ class Main extends Sprite {
 			stage.addEventListener(Event.ENTER_FRAME, onEnterFrame);
 		}
     }
-    
+	
+	function findSubGraph( mX: Float, mY: Float ):SubGraph{
+		var subGraph = subGraphHitTest( mX, mY );
+		if( subGraph == null ) return null;
+		#if !js 
+		// js not working??
+			if( subGraph.layer.hitTestConstraint( mX, mY ) ) return null;
+		#end
+		return subGraph;
+	}
+	
 	function clearMeshPoint(){
 		for( sg in subGraphs ) sg.removeMeshPoint();
 	}

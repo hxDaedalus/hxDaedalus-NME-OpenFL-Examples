@@ -8,12 +8,13 @@ import hxDaedalus.data.Object;
 import hxDaedalus.factories.BitmapObject;
 import hxDaedalus.factories.RectMesh;
 import hxDaedalus.view.SimpleView;
-
+import hxDaedalus.data.math.Geom2D;
 import flash.display.MovieClip;
 import flash.display.Stage;
 import flash.events.Event;
 import flash.events.MouseEvent;
 import flash.display.Bitmap;
+import flash.display.BitmapData;
 import flash.display.Sprite;
 import flash.events.KeyboardEvent;
 import flash.geom.Matrix;
@@ -30,6 +31,7 @@ class Layer{
 	var sampler: LinearPathSampler;
 	var obj: Object;
 	var bmp:Bitmap;
+	var bmpDataOrig: BitmapData;
 	var matrix: Matrix;
 	public var viewSprite: Sprite;
 	var pos: {x:Float,y:Float};
@@ -47,7 +49,8 @@ class Layer{
 		pos = pos_;
 		bmp = bmp_;
 		name = name_;
-		
+		// keep original image incase it's modified for hittest.
+		bmpDataOrig = bmp.bitmapData.clone();
 		w = bmp.width;
 		h = bmp.height;
 		right = pos.x + w;
@@ -101,9 +104,21 @@ class Layer{
 	
 	}
 	
+	
+	
 	public function hitTest( x_: Float, y_: Float ){
 		return ( x_ > pos.x && y_ > pos.y && x_ < right && y_ < bottom );
 	}
+	
+	
+	public function hitTestConstraint( x_: Float, y_: Float ):Bool{
+		var _x = Math.round( x_ - pos.x );
+		var _y = Math.round( y_ - pos.y );
+		if( Geom2D.isCircleIntersectingAnyConstraint( _x, _y, entity.radius, mesh ) ) return true;
+		if( bmpDataOrig.getPixel( _x, _y ) == 0 ) return true;
+		return false;
+	}
+	
 	
 	public function drawEntityFalse(){
 		view.drawEntity( entity, false );

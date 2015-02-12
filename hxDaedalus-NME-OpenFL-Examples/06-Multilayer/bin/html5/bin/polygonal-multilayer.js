@@ -981,17 +981,17 @@ Main.prototype = $extend(openfl.display.Sprite.prototype,{
 		this.startRoute(stage.get_mouseX(),stage.get_mouseY());
 	}
 	,startRoute: function(mX,mY) {
-		var subGraph;
+		var subGraph = this.findSubGraph(mX,mY);
+		if(subGraph == null) return;
 		if(this.renderPathIterator != null) {
 			var pos = this.renderPathIterator.currEntityPos();
 			if(pos != null) {
 				this.clearMeshPoint();
-				subGraph = this.subGraphHitTest(pos.x,pos.y);
-				this.start = subGraph.addMeshPoint(pos);
+				var startSubGraph = this.subGraphHitTest(pos.x,pos.y);
+				this.start = startSubGraph.addMeshPoint(pos);
 				this.start.internal = true;
 			}
 		}
-		subGraph = this.subGraphHitTest(mX,mY);
 		var end = subGraph.addMeshPoint({ x : mX, y : mY});
 		end.internal = true;
 		this.path = new de.polygonal.ds.DA();
@@ -1001,6 +1001,11 @@ Main.prototype = $extend(openfl.display.Sprite.prototype,{
 			var stage = openfl.Lib.current.stage;
 			stage.addEventListener(openfl.events.Event.ENTER_FRAME,$bind(this,this.onEnterFrame));
 		}
+	}
+	,findSubGraph: function(mX,mY) {
+		var subGraph = this.subGraphHitTest(mX,mY);
+		if(subGraph == null) return null;
+		return subGraph;
 	}
 	,clearMeshPoint: function() {
 		var _g = 0;
@@ -1198,18 +1203,6 @@ DefaultAssetLibrary.prototype = $extend(lime.AssetLibrary.prototype,{
 	}
 	,__class__: DefaultAssetLibrary
 });
-var EReg = function(r,opt) {
-	opt = opt.split("u").join("");
-	this.r = new RegExp(r,opt);
-};
-$hxClasses["EReg"] = EReg;
-EReg.__name__ = ["EReg"];
-EReg.prototype = {
-	replace: function(s,by) {
-		return s.replace(this.r,by);
-	}
-	,__class__: EReg
-};
 var HxOverrides = function() { };
 $hxClasses["HxOverrides"] = HxOverrides;
 HxOverrides.__name__ = ["HxOverrides"];
@@ -1257,6 +1250,7 @@ var Layer = function(scope,pos_,bmp_,name_) {
 	this.pos = pos_;
 	this.bmp = bmp_;
 	this.name = name_;
+	this.bmpDataOrig = this.bmp.bitmapData.clone();
 	this.w = this.bmp.get_width();
 	this.h = this.bmp.get_height();
 	this.right = this.pos.x + this.w;
@@ -1292,6 +1286,13 @@ Layer.__name__ = ["Layer"];
 Layer.prototype = {
 	hitTest: function(x_,y_) {
 		return x_ > this.pos.x && y_ > this.pos.y && x_ < this.right && y_ < this.bottom;
+	}
+	,hitTestConstraint: function(x_,y_) {
+		var _x = Math.round(x_ - this.pos.x);
+		var _y = Math.round(y_ - this.pos.y);
+		if(hxDaedalus.data.math.Geom2D.isCircleIntersectingAnyConstraint(_x,_y,this.entity.get_radius(),this.mesh)) return true;
+		if(this.bmpDataOrig.getPixel(_x,_y) == 0) return true;
+		return false;
 	}
 	,drawEntityFalse: function() {
 		this.view.drawEntity(this.entity,false);
@@ -1437,8 +1438,8 @@ de.polygonal.ai.pathfinding.AStarWaypoint = function() {
 	this.y = 0;
 	this.z = 0;
 	this.position = -1;
-	this.distance = NaN;
-	this.heuristic = NaN;
+	this.distance = Math.NaN;
+	this.heuristic = Math.NaN;
 	this.onQue = false;
 	this.node = null;
 };
@@ -1551,16 +1552,14 @@ RenderPathIterator.prototype = {
 	init: function(da_,fin_) {
 		this.da = this.clean(da_);
 		this.fin = fin_;
-		this.lastPortalWaypoint = this.da.get(0);
+		this.lastPortalWaypoint = this.da._a[0];
 		this.count = 0;
 	}
 	,clean: function(da_) {
 		var daOut = new de.polygonal.ds.DA();
 		var len = da_._size;
-		var first;
-		if(true != 0 < da_._size) throw new de.polygonal.ds.error.AssertError("the index " + 0 + " is out of range " + (da_._size - 1),{ fileName : "DA.hx", lineNumber : 164, className : "de.polygonal.ds.DA", methodName : "get"});
-		first = da_._a[0];
-		var last = da_.get(da_._size - 1);
+		var first = da_._a[0];
+		var last = da_._a[da_._size - 1];
 		if(first.layer == last.layer) {
 			daOut.set(daOut._size,first);
 			daOut.set(daOut._size,last);
@@ -1576,7 +1575,6 @@ RenderPathIterator.prototype = {
 		var _g = len - 1;
 		while(_g1 < _g) {
 			var i = _g1++;
-			if(true != (i >= 0 && i < da_._size)) throw new de.polygonal.ds.error.AssertError("the index " + i + " is out of range " + (da_._size - 1),{ fileName : "DA.hx", lineNumber : 164, className : "de.polygonal.ds.DA", methodName : "get"});
 			curr = da_._a[i];
 			if(curr.layer == currLayer) {
 				prev = curr;
@@ -1596,7 +1594,7 @@ RenderPathIterator.prototype = {
 	}
 	,next: function() {
 		this.count++;
-		var currPortalWaypoint = this.da.get(this.count);
+		var currPortalWaypoint = this.da._a[this.count];
 		var acrossLayer = this.lastPortalWaypoint.layer == currPortalWaypoint.layer;
 		if(acrossLayer) {
 			this.layer = this.lastPortalWaypoint.layer;
@@ -1757,7 +1755,12 @@ openfl.display.BitmapData = function(width,height,transparent,fillColor) {
 		this.height = height;
 		this.rect = new openfl.geom.Rectangle(0,0,width,height);
 		if(transparent) {
-			if((fillColor & -16777216) == 0) fillColor = 0;
+			if((function($this) {
+				var $r;
+				var $int = fillColor & -16777216;
+				$r = $int < 0?4294967296.0 + $int:$int + 0.0;
+				return $r;
+			}(this)) == 0) fillColor = 0;
 		} else fillColor = -16777216 | fillColor & 16777215;
 		this.__image = new lime.graphics.Image(null,0,0,width,height,fillColor);
 		this.__image.set_transparent(transparent);
@@ -2166,7 +2169,9 @@ openfl.display.BitmapData.prototype = {
 				while(_g3 < _g2) {
 					var xx = _g3++;
 					position = (width_yy + xx) * 4;
-					pixelValue = openfl.Memory.getI32(position);
+					pixelValue = openfl.Memory._setPositionTemporarily(position,function() {
+						return openfl.Memory.gcRef.readInt();
+					});
 					pixelMask = pixelValue & mask;
 					i = openfl.display.BitmapData.__ucompare(pixelMask,thresholdMask);
 					test = false;
@@ -2226,7 +2231,9 @@ openfl.display.BitmapData.prototype = {
 				while(_g11 < dw) {
 					var xx1 = _g11++;
 					position1 = (xx1 + sx + (yy1 + sy) * sw) * 4;
-					pixelValue1 = openfl.Memory.getI32(position1);
+					pixelValue1 = openfl.Memory._setPositionTemporarily(position1,function() {
+						return openfl.Memory.gcRef.readInt();
+					});
 					pixelMask1 = pixelValue1 & mask;
 					i1 = openfl.display.BitmapData.__ucompare(pixelMask1,thresholdMask1);
 					test1 = false;
@@ -2234,7 +2241,9 @@ openfl.display.BitmapData.prototype = {
 					if(test1) {
 						openfl.Memory.setI32(position1,color);
 						hits1++;
-					} else if(copySource) openfl.Memory.setI32(position1,openfl.Memory.getI32(canvasMemory + position1));
+					} else if(copySource) openfl.Memory.setI32(position1,openfl.Memory._setPositionTemporarily(canvasMemory + position1,function() {
+						return openfl.Memory.gcRef.readInt();
+					}));
 				}
 			}
 			memory1.position = 0;
@@ -2413,10 +2422,6 @@ Type.createInstance = function(cl,args) {
 		throw "Too many arguments";
 	}
 	return null;
-};
-Type.createEmptyInstance = function(cl) {
-	function empty() {}; empty.prototype = cl.prototype;
-	return new empty();
 };
 Type.getClassFields = function(c) {
 	var a = Reflect.fields(c);
@@ -2804,7 +2809,7 @@ de.polygonal.Printf.formatNormalFloat = function(value,args) {
 	} else {
 		value = de.polygonal.Printf.roundTo(value,Math.pow(.1,precision));
 		var decimalPlaces = precision;
-		if(isNaN(value)) output = "NaN"; else {
+		if(Math.isNaN(value)) output = "NaN"; else {
 			var t = Std["int"](Math.pow(10,decimalPlaces));
 			output = de.polygonal.Printf.str((value * t | 0) / t);
 			var i = output.indexOf(".");
@@ -3043,7 +3048,6 @@ de.polygonal.ds.ArrayUtil = function() { };
 $hxClasses["de.polygonal.ds.ArrayUtil"] = de.polygonal.ds.ArrayUtil;
 de.polygonal.ds.ArrayUtil.__name__ = ["de","polygonal","ds","ArrayUtil"];
 de.polygonal.ds.ArrayUtil.alloc = function(x) {
-	if(true != x >= 0) throw new de.polygonal.ds.error.AssertError("x >= 0",{ fileName : "ArrayUtil.hx", lineNumber : 46, className : "de.polygonal.ds.ArrayUtil", methodName : "alloc"});
 	var a;
 	a = new Array(x);
 	return a;
@@ -3056,11 +3060,6 @@ de.polygonal.ds.ArrayUtil.copy = function(src,dst,min,max) {
 	if(max == null) max = -1;
 	if(min == null) min = 0;
 	if(max == -1) max = src.length;
-	if(true != (src != null)) throw new de.polygonal.ds.error.AssertError("src != null",{ fileName : "ArrayUtil.hx", lineNumber : 92, className : "de.polygonal.ds.ArrayUtil", methodName : "copy"});
-	if(true != (dst != null)) throw new de.polygonal.ds.error.AssertError("dst != null",{ fileName : "ArrayUtil.hx", lineNumber : 93, className : "de.polygonal.ds.ArrayUtil", methodName : "copy"});
-	if(true != min >= 0) throw new de.polygonal.ds.error.AssertError("min >= 0",{ fileName : "ArrayUtil.hx", lineNumber : 94, className : "de.polygonal.ds.ArrayUtil", methodName : "copy"});
-	if(true != max <= src.length) throw new de.polygonal.ds.error.AssertError("max <= src.length",{ fileName : "ArrayUtil.hx", lineNumber : 95, className : "de.polygonal.ds.ArrayUtil", methodName : "copy"});
-	if(true != min < max) throw new de.polygonal.ds.error.AssertError("min < max",{ fileName : "ArrayUtil.hx", lineNumber : 96, className : "de.polygonal.ds.ArrayUtil", methodName : "copy"});
 	var j = 0;
 	var _g = min;
 	while(_g < max) {
@@ -3089,10 +3088,6 @@ de.polygonal.ds.ArrayUtil.assign = function(dst,C,args,k) {
 	}
 };
 de.polygonal.ds.ArrayUtil.memmove = function(a,destination,source,n) {
-	if(true != (destination >= 0 && source >= 0 && n >= 0)) throw new de.polygonal.ds.error.AssertError("destination >= 0 && source >= 0 && n >= 0",{ fileName : "ArrayUtil.hx", lineNumber : 136, className : "de.polygonal.ds.ArrayUtil", methodName : "memmove"});
-	if(true != source < a.length) throw new de.polygonal.ds.error.AssertError("source < a.length",{ fileName : "ArrayUtil.hx", lineNumber : 137, className : "de.polygonal.ds.ArrayUtil", methodName : "memmove"});
-	if(true != destination + n <= a.length) throw new de.polygonal.ds.error.AssertError("destination + n <= a.length",{ fileName : "ArrayUtil.hx", lineNumber : 138, className : "de.polygonal.ds.ArrayUtil", methodName : "memmove"});
-	if(true != n <= a.length) throw new de.polygonal.ds.error.AssertError("n <= a.length",{ fileName : "ArrayUtil.hx", lineNumber : 139, className : "de.polygonal.ds.ArrayUtil", methodName : "memmove"});
 	if(source == destination) return; else if(source <= destination) {
 		var i = source + n;
 		var j = destination + n;
@@ -3116,10 +3111,6 @@ de.polygonal.ds.ArrayUtil.memmove = function(a,destination,source,n) {
 	}
 };
 de.polygonal.ds.ArrayUtil.bsearchComparator = function(a,x,min,max,comparator) {
-	if(true != (a != null)) throw new de.polygonal.ds.error.AssertError("a != null",{ fileName : "ArrayUtil.hx", lineNumber : 179, className : "de.polygonal.ds.ArrayUtil", methodName : "bsearchComparator"});
-	if(true != (comparator != null)) throw new de.polygonal.ds.error.AssertError("comparator != null",{ fileName : "ArrayUtil.hx", lineNumber : 180, className : "de.polygonal.ds.ArrayUtil", methodName : "bsearchComparator"});
-	if(true != (min >= 0 && min < a.length)) throw new de.polygonal.ds.error.AssertError("min >= 0 && min < a.length",{ fileName : "ArrayUtil.hx", lineNumber : 181, className : "de.polygonal.ds.ArrayUtil", methodName : "bsearchComparator"});
-	if(true != max < a.length) throw new de.polygonal.ds.error.AssertError("max < a.length",{ fileName : "ArrayUtil.hx", lineNumber : 182, className : "de.polygonal.ds.ArrayUtil", methodName : "bsearchComparator"});
 	var l = min;
 	var m;
 	var h = max + 1;
@@ -3130,9 +3121,6 @@ de.polygonal.ds.ArrayUtil.bsearchComparator = function(a,x,min,max,comparator) {
 	if(l <= max && comparator(a[l],x) == 0) return l; else return ~l;
 };
 de.polygonal.ds.ArrayUtil.bsearchInt = function(a,x,min,max) {
-	if(true != (a != null)) throw new de.polygonal.ds.error.AssertError("a != null",{ fileName : "ArrayUtil.hx", lineNumber : 211, className : "de.polygonal.ds.ArrayUtil", methodName : "bsearchInt"});
-	if(true != (min >= 0 && min < a.length)) throw new de.polygonal.ds.error.AssertError("min >= 0 && min < a.length",{ fileName : "ArrayUtil.hx", lineNumber : 212, className : "de.polygonal.ds.ArrayUtil", methodName : "bsearchInt"});
-	if(true != max < a.length) throw new de.polygonal.ds.error.AssertError("max < a.length",{ fileName : "ArrayUtil.hx", lineNumber : 213, className : "de.polygonal.ds.ArrayUtil", methodName : "bsearchInt"});
 	var l = min;
 	var m;
 	var h = max + 1;
@@ -3143,9 +3131,6 @@ de.polygonal.ds.ArrayUtil.bsearchInt = function(a,x,min,max) {
 	if(l <= max && a[l] == x) return l; else return ~l;
 };
 de.polygonal.ds.ArrayUtil.bsearchFloat = function(a,x,min,max) {
-	if(true != (a != null)) throw new de.polygonal.ds.error.AssertError("a != null",{ fileName : "ArrayUtil.hx", lineNumber : 242, className : "de.polygonal.ds.ArrayUtil", methodName : "bsearchFloat"});
-	if(true != (min >= 0 && min < a.length)) throw new de.polygonal.ds.error.AssertError("min >= 0 && min < a.length",{ fileName : "ArrayUtil.hx", lineNumber : 243, className : "de.polygonal.ds.ArrayUtil", methodName : "bsearchFloat"});
-	if(true != max < a.length) throw new de.polygonal.ds.error.AssertError("max < a.length",{ fileName : "ArrayUtil.hx", lineNumber : 244, className : "de.polygonal.ds.ArrayUtil", methodName : "bsearchFloat"});
 	var l = min;
 	var m;
 	var h = max + 1;
@@ -3156,7 +3141,6 @@ de.polygonal.ds.ArrayUtil.bsearchFloat = function(a,x,min,max) {
 	if(l <= max && a[l] == x) return l; else return ~l;
 };
 de.polygonal.ds.ArrayUtil.shuffle = function(a,rval) {
-	if(true != (a != null)) throw new de.polygonal.ds.error.AssertError("a != null",{ fileName : "ArrayUtil.hx", lineNumber : 272, className : "de.polygonal.ds.ArrayUtil", methodName : "shuffle"});
 	var s = a.length;
 	if(rval == null) {
 		var m = Math;
@@ -3167,7 +3151,6 @@ de.polygonal.ds.ArrayUtil.shuffle = function(a,rval) {
 			a[i] = t;
 		}
 	} else {
-		if(true != rval.length >= a.length) throw new de.polygonal.ds.error.AssertError("insufficient random values",{ fileName : "ArrayUtil.hx", lineNumber : 290, className : "de.polygonal.ds.ArrayUtil", methodName : "shuffle"});
 		var j = 0;
 		while(--s > 1) {
 			var i1 = Std["int"](rval[j++] * s);
@@ -3180,8 +3163,6 @@ de.polygonal.ds.ArrayUtil.shuffle = function(a,rval) {
 de.polygonal.ds.ArrayUtil.sortRange = function(a,compare,useInsertionSort,first,count) {
 	var k = a.length;
 	if(k > 1) {
-		if(true != (first >= 0 && first <= k - 1 && first + count <= k)) throw new de.polygonal.ds.error.AssertError("first out of bound",{ fileName : "ArrayUtil.hx", lineNumber : 319, className : "de.polygonal.ds.ArrayUtil", methodName : "sortRange"});
-		if(true != (count >= 0 && count <= k)) throw new de.polygonal.ds.error.AssertError("count out of bound",{ fileName : "ArrayUtil.hx", lineNumber : 320, className : "de.polygonal.ds.ArrayUtil", methodName : "sortRange"});
 		if(useInsertionSort) de.polygonal.ds.ArrayUtil._insertionSort(a,first,count,compare); else de.polygonal.ds.ArrayUtil._quickSort(a,first,count,compare);
 	}
 };
@@ -3225,7 +3206,6 @@ de.polygonal.ds.ArrayUtil.equals = function(a,b) {
 	return true;
 };
 de.polygonal.ds.ArrayUtil.split = function(a,n,k) {
-	if(true != (n % k == 0)) throw new de.polygonal.ds.error.AssertError("n is not a multiple of k",{ fileName : "ArrayUtil.hx", lineNumber : 391, className : "de.polygonal.ds.ArrayUtil", methodName : "split"});
 	var output = new Array();
 	var b = null;
 	var _g = 0;
@@ -3311,23 +3291,18 @@ de.polygonal.ds.Bits.setBitsIf = function(x,mask,expr) {
 	if(expr) return x | mask; else return x & ~mask;
 };
 de.polygonal.ds.Bits.hasBitAt = function(x,i) {
-	if(true != (i >= 0 && i < 32)) throw new de.polygonal.ds.error.AssertError("index out of range (" + i + ")",{ fileName : "Bits.hx", lineNumber : 228, className : "de.polygonal.ds.Bits", methodName : "hasBitAt"});
 	return (x & 1 << i) != 0;
 };
 de.polygonal.ds.Bits.setBitAt = function(x,i) {
-	if(true != (i >= 0 && i < 32)) throw new de.polygonal.ds.error.AssertError("index out of range (" + i + ")",{ fileName : "Bits.hx", lineNumber : 241, className : "de.polygonal.ds.Bits", methodName : "setBitAt"});
 	return x | 1 << i;
 };
 de.polygonal.ds.Bits.clrBitAt = function(x,i) {
-	if(true != (i >= 0 && i < 32)) throw new de.polygonal.ds.error.AssertError("index out of range (" + i + ")",{ fileName : "Bits.hx", lineNumber : 254, className : "de.polygonal.ds.Bits", methodName : "clrBitAt"});
 	return x & ~(1 << i);
 };
 de.polygonal.ds.Bits.invBitAt = function(x,i) {
-	if(true != (i >= 0 && i < 32)) throw new de.polygonal.ds.error.AssertError("index out of range (" + i + ")",{ fileName : "Bits.hx", lineNumber : 267, className : "de.polygonal.ds.Bits", methodName : "invBitAt"});
 	return x ^ 1 << i;
 };
 de.polygonal.ds.Bits.setBitsRange = function(x,min,max) {
-	if(true != (min < max && min != max && min >= 0 && min < 32)) throw new de.polygonal.ds.error.AssertError("invalid range (min: " + min + ", max: " + max + ")",{ fileName : "Bits.hx", lineNumber : 280, className : "de.polygonal.ds.Bits", methodName : "setBitsRange"});
 	var _g = min;
 	while(_g < max) {
 		var i = _g++;
@@ -3336,7 +3311,6 @@ de.polygonal.ds.Bits.setBitsRange = function(x,min,max) {
 	return x;
 };
 de.polygonal.ds.Bits.mask = function(n) {
-	if(true != (n >= 1 && n <= 32)) throw new de.polygonal.ds.error.AssertError("n >= 1 && n <= 32",{ fileName : "Bits.hx", lineNumber : 300, className : "de.polygonal.ds.Bits", methodName : "mask"});
 	return (1 << n) - 1;
 };
 de.polygonal.ds.Bits.ones = function(x) {
@@ -3400,13 +3374,9 @@ de.polygonal.ds.Bits.flipDWORD = function(x) {
 	return x << 24 | x << 8 & 16711680 | x >> 8 & 65280 | x >> 24;
 };
 de.polygonal.ds.Bits.packI16 = function(lo,hi) {
-	if(true != (lo >= -32768 && lo <= 32767)) throw new de.polygonal.ds.error.AssertError("lo overflow",{ fileName : "Bits.hx", lineNumber : 440, className : "de.polygonal.ds.Bits", methodName : "packI16"});
-	if(true != (hi >= -32768 && hi <= 32767)) throw new de.polygonal.ds.error.AssertError("hi overflow",{ fileName : "Bits.hx", lineNumber : 441, className : "de.polygonal.ds.Bits", methodName : "packI16"});
 	return hi + 32768 << 16 | lo + 32768;
 };
 de.polygonal.ds.Bits.packUI16 = function(lo,hi) {
-	if(true != (lo >= 0 && lo <= 65535)) throw new de.polygonal.ds.error.AssertError("lo overflow",{ fileName : "Bits.hx", lineNumber : 455, className : "de.polygonal.ds.Bits", methodName : "packUI16"});
-	if(true != (hi >= 0 && hi <= 65535)) throw new de.polygonal.ds.error.AssertError("hi overflow",{ fileName : "Bits.hx", lineNumber : 456, className : "de.polygonal.ds.Bits", methodName : "packUI16"});
 	return hi << 16 | lo;
 };
 de.polygonal.ds.Bits.unpackI16Lo = function(x) {
@@ -3445,11 +3415,8 @@ de.polygonal.ds.DA = function(reservedSize,maxSize) {
 	if(reservedSize == null) reservedSize = 0;
 	this._size = 0;
 	this._iterator = null;
-	if(maxSize == -1) this.maxSize = 2147483647; else this.maxSize = maxSize;
-	if(reservedSize > 0) {
-		if(true != reservedSize <= this.maxSize) throw new de.polygonal.ds.error.AssertError("reserved size is greater than allowed size",{ fileName : "DA.hx", lineNumber : 95, className : "de.polygonal.ds.DA", methodName : "new"});
-		this._a = de.polygonal.ds.ArrayUtil.alloc(reservedSize);
-	} else this._a = new Array();
+	this.maxSize = -1;
+	if(reservedSize > 0) this._a = de.polygonal.ds.ArrayUtil.alloc(reservedSize); else this._a = new Array();
 	this.key = de.polygonal.ds.HashKey._counter++;
 	this.reuseIterator = false;
 };
@@ -3489,62 +3456,40 @@ de.polygonal.ds.DA.prototype = {
 		}
 	}
 	,trim: function(x) {
-		if(true != x <= this._size) throw new de.polygonal.ds.error.AssertError("new size > current size (" + x + "/" + this._size + ")",{ fileName : "DA.hx", lineNumber : 150, className : "de.polygonal.ds.DA", methodName : "trim"});
 		this._size = x;
 	}
 	,get: function(i) {
-		if(true != (i >= 0 && i < this._size)) throw new de.polygonal.ds.error.AssertError("the index " + i + " is out of range " + (this._size - 1),{ fileName : "DA.hx", lineNumber : 164, className : "de.polygonal.ds.DA", methodName : "get"});
 		return this._a[i];
 	}
 	,getNext: function(i) {
-		if(true != (i >= 0 && i < this._size)) throw new de.polygonal.ds.error.AssertError("the index " + i + " is out of range " + (this._size - 1),{ fileName : "DA.hx", lineNumber : 179, className : "de.polygonal.ds.DA", methodName : "getNext"});
 		return this._a[i + 1 == this._size?0:i + 1];
 	}
 	,getPrev: function(i) {
-		if(true != (i >= 0 && i < this._size)) throw new de.polygonal.ds.error.AssertError("the index " + i + " is out of range " + (this._size - 1),{ fileName : "DA.hx", lineNumber : 194, className : "de.polygonal.ds.DA", methodName : "getPrev"});
 		return this._a[i - 1 == -1?this._size - 1:i - 1];
 	}
 	,set: function(i,x) {
-		if(true != (i >= 0 && i <= this._size)) throw new de.polygonal.ds.error.AssertError("the index " + i + " is out of range " + this._size,{ fileName : "DA.hx", lineNumber : 208, className : "de.polygonal.ds.DA", methodName : "set"});
-		if(true != i < this.maxSize) throw new de.polygonal.ds.error.AssertError("size equals max size (" + this.maxSize + ")",{ fileName : "DA.hx", lineNumber : 209, className : "de.polygonal.ds.DA", methodName : "set"});
 		this._a[i] = x;
 		if(i >= this._size) this._size++;
 	}
 	,swp: function(i,j) {
-		if(true != (i != j)) throw new de.polygonal.ds.error.AssertError("i index equals j index (" + i + ")",{ fileName : "DA.hx", lineNumber : 224, className : "de.polygonal.ds.DA", methodName : "swp"});
-		var tmp;
-		if(true != (i >= 0 && i < this._size)) throw new de.polygonal.ds.error.AssertError("the index " + i + " is out of range " + (this._size - 1),{ fileName : "DA.hx", lineNumber : 164, className : "de.polygonal.ds.DA", methodName : "get"});
-		tmp = this._a[i];
-		if(true != (i != j)) throw new de.polygonal.ds.error.AssertError("i index equals j index (" + i + ")",{ fileName : "DA.hx", lineNumber : 240, className : "de.polygonal.ds.DA", methodName : "cpy"});
-		this.set(i,(function($this) {
-			var $r;
-			if(true != (j >= 0 && j < $this._size)) throw new de.polygonal.ds.error.AssertError("the index " + j + " is out of range " + ($this._size - 1),{ fileName : "DA.hx", lineNumber : 164, className : "de.polygonal.ds.DA", methodName : "get"});
-			$r = $this._a[j];
-			return $r;
-		}(this)));
-		if(true != (j >= 0 && j <= this._size)) throw new de.polygonal.ds.error.AssertError("the index " + j + " is out of range " + this._size,{ fileName : "DA.hx", lineNumber : 208, className : "de.polygonal.ds.DA", methodName : "set"});
-		if(true != j < this.maxSize) throw new de.polygonal.ds.error.AssertError("size equals max size (" + this.maxSize + ")",{ fileName : "DA.hx", lineNumber : 209, className : "de.polygonal.ds.DA", methodName : "set"});
+		var tmp = this._a[i];
+		this._a[i] = this._a[j];
+		if(i >= this._size) this._size++;
 		this._a[j] = tmp;
 		if(j >= this._size) this._size++;
 	}
 	,cpy: function(i,j) {
-		if(true != (i != j)) throw new de.polygonal.ds.error.AssertError("i index equals j index (" + i + ")",{ fileName : "DA.hx", lineNumber : 240, className : "de.polygonal.ds.DA", methodName : "cpy"});
-		this.set(i,(function($this) {
-			var $r;
-			if(true != (j >= 0 && j < $this._size)) throw new de.polygonal.ds.error.AssertError("the index " + j + " is out of range " + ($this._size - 1),{ fileName : "DA.hx", lineNumber : 164, className : "de.polygonal.ds.DA", methodName : "get"});
-			$r = $this._a[j];
-			return $r;
-		}(this)));
+		this._a[i] = this._a[j];
+		if(i >= this._size) this._size++;
 	}
 	,front: function() {
-		if(true != 0 < this._size) throw new de.polygonal.ds.error.AssertError("the index " + 0 + " is out of range " + (this._size - 1),{ fileName : "DA.hx", lineNumber : 164, className : "de.polygonal.ds.DA", methodName : "get"});
 		return this._a[0];
 	}
 	,back: function() {
-		return this.get(this._size - 1);
+		return this._a[this._size - 1];
 	}
 	,popBack: function() {
-		var x = this.get(this._size - 1);
+		var x = this._a[this._size - 1];
 		this._size--;
 		return x;
 	}
@@ -3555,21 +3500,15 @@ de.polygonal.ds.DA.prototype = {
 		return this.removeAt(0);
 	}
 	,pushFront: function(x) {
-		if(this.maxSize != -1) {
-			if(true != this._size < this.maxSize) throw new de.polygonal.ds.error.AssertError("size equals max size (" + this.maxSize + ")",{ fileName : "DA.hx", lineNumber : 311, className : "de.polygonal.ds.DA", methodName : "pushFront"});
-		}
 		this.insertAt(0,x);
 	}
 	,insertAt: function(i,x) {
-		if(true != this._size < this.maxSize) throw new de.polygonal.ds.error.AssertError("size equals max size (" + this.maxSize + ")",{ fileName : "DA.hx", lineNumber : 327, className : "de.polygonal.ds.DA", methodName : "insertAt"});
-		if(true != (i >= 0 && i <= this._size)) throw new de.polygonal.ds.error.AssertError("i index out of range (" + i + ")",{ fileName : "DA.hx", lineNumber : 328, className : "de.polygonal.ds.DA", methodName : "insertAt"});
 		var p = this._size;
 		while(p > i) this.__cpy(p--,p);
 		this._a[i] = x;
 		this._size++;
 	}
 	,removeAt: function(i) {
-		if(true != (i >= 0 && i < this._size)) throw new de.polygonal.ds.error.AssertError("the index " + i + " is out of range " + this._size,{ fileName : "DA.hx", lineNumber : 354, className : "de.polygonal.ds.DA", methodName : "removeAt"});
 		var x = this._a[i];
 		var k = this._size - 1;
 		var p = i;
@@ -3578,12 +3517,9 @@ de.polygonal.ds.DA.prototype = {
 		return x;
 	}
 	,swapPop: function(i) {
-		if(true != (i >= 0 && i < this._size)) throw new de.polygonal.ds.error.AssertError("the index " + i + " is out of range " + this._size,{ fileName : "DA.hx", lineNumber : 380, className : "de.polygonal.ds.DA", methodName : "swapPop"});
 		this.__set(i,this.__get(--this._size));
 	}
 	,removeRange: function(i,n,output) {
-		if(true != (i >= 0 && i <= this._size)) throw new de.polygonal.ds.error.AssertError("i index out of range (" + i + ")",{ fileName : "DA.hx", lineNumber : 396, className : "de.polygonal.ds.DA", methodName : "removeRange"});
-		if(true != (n > 0 && n <= this._size && i + n <= this._size)) throw new de.polygonal.ds.error.AssertError("n out of range (" + n + ")",{ fileName : "DA.hx", lineNumber : 397, className : "de.polygonal.ds.DA", methodName : "removeRange"});
 		if(output == null) {
 			var s = this._size;
 			var p = i + n;
@@ -3608,7 +3544,6 @@ de.polygonal.ds.DA.prototype = {
 	}
 	,concat: function(x,copy) {
 		if(copy == null) copy = false;
-		if(true != (x != null)) throw new de.polygonal.ds.error.AssertError("x is null",{ fileName : "DA.hx", lineNumber : 439, className : "de.polygonal.ds.DA", methodName : "concat"});
 		if(copy) {
 			var copy1 = new de.polygonal.ds.DA();
 			copy1._size = this._size + x._size;
@@ -3616,8 +3551,6 @@ de.polygonal.ds.DA.prototype = {
 			var _g = this._size;
 			while(_g1 < _g) {
 				var i = _g1++;
-				if(true != (i >= 0 && i <= copy1._size)) throw new de.polygonal.ds.error.AssertError("the index " + i + " is out of range " + copy1._size,{ fileName : "DA.hx", lineNumber : 208, className : "de.polygonal.ds.DA", methodName : "set"});
-				if(true != i < copy1.maxSize) throw new de.polygonal.ds.error.AssertError("size equals max size (" + copy1.maxSize + ")",{ fileName : "DA.hx", lineNumber : 209, className : "de.polygonal.ds.DA", methodName : "set"});
 				copy1._a[i] = this._a[i];
 				if(i >= copy1._size) copy1._size++;
 			}
@@ -3625,23 +3558,18 @@ de.polygonal.ds.DA.prototype = {
 			var _g2 = this._size + x._size;
 			while(_g11 < _g2) {
 				var i1 = _g11++;
-				copy1.set(i1,x.get(i1 - this._size));
+				copy1._a[i1] = x._a[i1 - this._size];
+				if(i1 >= copy1._size) copy1._size++;
 			}
 			return copy1;
 		} else {
-			if(true != (x != this)) throw new de.polygonal.ds.error.AssertError("x equals this",{ fileName : "DA.hx", lineNumber : 453, className : "de.polygonal.ds.DA", methodName : "concat"});
 			var j = this._size;
 			this._size += x._size;
 			var _g12 = 0;
 			var _g3 = x._size;
 			while(_g12 < _g3) {
 				var i2 = _g12++;
-				this.__set(j++,(function($this) {
-					var $r;
-					if(true != (i2 >= 0 && i2 < x._size)) throw new de.polygonal.ds.error.AssertError("the index " + i2 + " is out of range " + (x._size - 1),{ fileName : "DA.hx", lineNumber : 164, className : "de.polygonal.ds.DA", methodName : "get"});
-					$r = x._a[i2];
-					return $r;
-				}(this)));
+				this.__set(j++,x._a[i2]);
 			}
 			return this;
 		}
@@ -3649,40 +3577,33 @@ de.polygonal.ds.DA.prototype = {
 	,indexOf: function(x,from,binarySearch,comparator) {
 		if(binarySearch == null) binarySearch = false;
 		if(from == null) from = 0;
-		if(this._size == 0) return -1; else {
-			if(true != (from >= 0 && from < this._size)) throw new de.polygonal.ds.error.AssertError("from index out of range (" + from + ")",{ fileName : "DA.hx", lineNumber : 481, className : "de.polygonal.ds.DA", methodName : "indexOf"});
-			if(binarySearch) {
-				if(comparator != null) return de.polygonal.ds.ArrayUtil.bsearchComparator(this._a,x,from,this._size - 1,comparator); else {
-					if(true != js.Boot.__instanceof(x,de.polygonal.ds.Comparable)) throw new de.polygonal.ds.error.AssertError("element is not of type Comparable (" + Std.string(x) + ")",{ fileName : "DA.hx", lineNumber : 491, className : "de.polygonal.ds.DA", methodName : "indexOf"});
-					var k = this._size;
-					var l = from;
-					var m;
-					var h = k;
-					while(l < h) {
-						m = l + (h - l >> 1);
-						if(true != js.Boot.__instanceof(this._a[m],de.polygonal.ds.Comparable)) throw new de.polygonal.ds.error.AssertError("element is not of type Comparable (" + Std.string(this._a[m]) + ")",{ fileName : "DA.hx", lineNumber : 501, className : "de.polygonal.ds.DA", methodName : "indexOf"});
-						if((js.Boot.__cast(this._a[m] , de.polygonal.ds.Comparable)).compare(x) < 0) l = m + 1; else h = m;
-					}
-					if(true != js.Boot.__instanceof(this._a[l],de.polygonal.ds.Comparable)) throw new de.polygonal.ds.error.AssertError("element is not of type Comparable (" + Std.string(this._a[l]) + ")",{ fileName : "DA.hx", lineNumber : 511, className : "de.polygonal.ds.DA", methodName : "indexOf"});
-					if(l <= k && (js.Boot.__cast(this._a[l] , de.polygonal.ds.Comparable)).compare(x) == 0) return l; else return -l;
+		if(this._size == 0) return -1; else if(binarySearch) {
+			if(comparator != null) return de.polygonal.ds.ArrayUtil.bsearchComparator(this._a,x,from,this._size - 1,comparator); else {
+				var k = this._size;
+				var l = from;
+				var m;
+				var h = k;
+				while(l < h) {
+					m = l + (h - l >> 1);
+					if((js.Boot.__cast(this._a[m] , de.polygonal.ds.Comparable)).compare(x) < 0) l = m + 1; else h = m;
 				}
-			} else {
-				var i = from;
-				var j = -1;
-				var k1 = this._size - 1;
-				do if(this._a[i] == x) {
-					j = i;
-					break;
-				} while(i++ < k1);
-				return j;
+				if(l <= k && (js.Boot.__cast(this._a[l] , de.polygonal.ds.Comparable)).compare(x) == 0) return l; else return -l;
 			}
+		} else {
+			var i = from;
+			var j = -1;
+			var k1 = this._size - 1;
+			do if(this._a[i] == x) {
+				j = i;
+				break;
+			} while(i++ < k1);
+			return j;
 		}
 	}
 	,lastIndexOf: function(x,from) {
 		if(from == null) from = -1;
 		if(this._size == 0) return -1; else {
 			if(from < 0) from = this._size + from;
-			if(true != (from >= 0 && from < this._size)) throw new de.polygonal.ds.error.AssertError("from index out of range (" + from + ")",{ fileName : "DA.hx", lineNumber : 551, className : "de.polygonal.ds.DA", methodName : "lastIndexOf"});
 			var j = -1;
 			var i = from;
 			do if(this._a[i] == x) {
@@ -3698,11 +3619,7 @@ de.polygonal.ds.DA.prototype = {
 	}
 	,assign: function(C,args,n) {
 		if(n == null) n = 0;
-		if(true != n >= 0) throw new de.polygonal.ds.error.AssertError("n >= 0",{ fileName : "DA.hx", lineNumber : 592, className : "de.polygonal.ds.DA", methodName : "assign"});
-		if(n > 0) {
-			if(true != n <= this.maxSize) throw new de.polygonal.ds.error.AssertError("n out of range (" + n + ")",{ fileName : "DA.hx", lineNumber : 598, className : "de.polygonal.ds.DA", methodName : "assign"});
-			this._size = n;
-		} else n = this._size;
+		if(n > 0) this._size = n; else n = this._size;
 		if(args == null) args = [];
 		var _g = 0;
 		while(_g < n) {
@@ -3712,11 +3629,7 @@ de.polygonal.ds.DA.prototype = {
 	}
 	,fill: function(x,n) {
 		if(n == null) n = 0;
-		if(true != n >= 0) throw new de.polygonal.ds.error.AssertError("n >= 0",{ fileName : "DA.hx", lineNumber : 618, className : "de.polygonal.ds.DA", methodName : "fill"});
-		if(n > 0) {
-			if(true != n <= this.maxSize) throw new de.polygonal.ds.error.AssertError("n out of range (" + n + ")",{ fileName : "DA.hx", lineNumber : 624, className : "de.polygonal.ds.DA", methodName : "fill"});
-			this._size = n;
-		} else n = this._size;
+		if(n > 0) this._size = n; else n = this._size;
 		var _g = 0;
 		while(_g < n) {
 			var i = _g++;
@@ -3725,10 +3638,6 @@ de.polygonal.ds.DA.prototype = {
 		return this;
 	}
 	,memmove: function(destination,source,n) {
-		if(true != (destination >= 0 && source >= 0 && n >= 0)) throw new de.polygonal.ds.error.AssertError("destination >= 0 && source >= 0 && n >= 0",{ fileName : "DA.hx", lineNumber : 648, className : "de.polygonal.ds.DA", methodName : "memmove"});
-		if(true != source < this._size) throw new de.polygonal.ds.error.AssertError("source < size()",{ fileName : "DA.hx", lineNumber : 649, className : "de.polygonal.ds.DA", methodName : "memmove"});
-		if(true != destination + n <= this._size) throw new de.polygonal.ds.error.AssertError("destination + n <= size()",{ fileName : "DA.hx", lineNumber : 650, className : "de.polygonal.ds.DA", methodName : "memmove"});
-		if(true != n <= this._size) throw new de.polygonal.ds.error.AssertError("n <= size()",{ fileName : "DA.hx", lineNumber : 651, className : "de.polygonal.ds.DA", methodName : "memmove"});
 		if(source == destination) return; else if(source <= destination) {
 			var i = source + n;
 			var j = destination + n;
@@ -3753,31 +3662,16 @@ de.polygonal.ds.DA.prototype = {
 	}
 	,join: function(x) {
 		if(this._size == 0) return "";
-		if(this._size == 1) return Std.string((function($this) {
-			var $r;
-			if(true != 0 < $this._size) throw new de.polygonal.ds.error.AssertError("the index " + 0 + " is out of range " + ($this._size - 1),{ fileName : "DA.hx", lineNumber : 164, className : "de.polygonal.ds.DA", methodName : "get"});
-			$r = $this._a[0];
-			return $r;
-		}(this)));
-		var s = Std.string((function($this) {
-			var $r;
-			if(true != 0 < $this._size) throw new de.polygonal.ds.error.AssertError("the index " + 0 + " is out of range " + ($this._size - 1),{ fileName : "DA.hx", lineNumber : 164, className : "de.polygonal.ds.DA", methodName : "get"});
-			$r = $this._a[0];
-			return $r;
-		}(this))) + x;
+		if(this._size == 1) return Std.string(this._a[0]);
+		var s = Std.string(this._a[0]) + x;
 		var _g1 = 1;
 		var _g = this._size - 1;
 		while(_g1 < _g) {
 			var i = _g1++;
-			s += Std.string((function($this) {
-				var $r;
-				if(true != (i >= 0 && i < $this._size)) throw new de.polygonal.ds.error.AssertError("the index " + i + " is out of range " + ($this._size - 1),{ fileName : "DA.hx", lineNumber : 164, className : "de.polygonal.ds.DA", methodName : "get"});
-				$r = $this._a[i];
-				return $r;
-			}(this)));
+			s += Std.string(this._a[i]);
 			s += x;
 		}
-		s += Std.string(this.get(this._size - 1));
+		s += Std.string(this._a[this._size - 1]);
 		return s;
 	}
 	,sort: function(compare,useInsertionSort,first,count) {
@@ -3786,8 +3680,6 @@ de.polygonal.ds.DA.prototype = {
 		if(useInsertionSort == null) useInsertionSort = false;
 		if(this._size > 1) {
 			if(count == -1) count = this._size - first;
-			if(true != (first >= 0 && first <= this._size - 1 && first + count <= this._size)) throw new de.polygonal.ds.error.AssertError("first index out of bound",{ fileName : "DA.hx", lineNumber : 718, className : "de.polygonal.ds.DA", methodName : "sort"});
-			if(true != (count >= 0 && count <= this._size)) throw new de.polygonal.ds.error.AssertError("count out of bound",{ fileName : "DA.hx", lineNumber : 719, className : "de.polygonal.ds.DA", methodName : "sort"});
 			if(compare == null) {
 				if(useInsertionSort) this._insertionSortComparable(first,count); else this._quickSortComparable(first,count);
 			} else if(useInsertionSort) this._insertionSort(first,count,compare); else if(first == 0 && count == this._size) {
@@ -3896,7 +3788,6 @@ de.polygonal.ds.DA.prototype = {
 			var _g2 = this._size;
 			while(_g11 < _g2) {
 				var i1 = _g11++;
-				if(true != js.Boot.__instanceof(this._a[i1],de.polygonal.ds.Cloneable)) throw new de.polygonal.ds.error.AssertError("element is not of type Cloneable (" + Std.string(this._a[i1]) + ")",{ fileName : "DA.hx", lineNumber : 929, className : "de.polygonal.ds.DA", methodName : "clone"});
 				c = js.Boot.__cast(this._a[i1] , de.polygonal.ds.Cloneable);
 				copy.__set(i1,c.clone());
 			}
@@ -3921,7 +3812,6 @@ de.polygonal.ds.DA.prototype = {
 				this._a[i] = t;
 			}
 		} else {
-			if(true != rval._size >= this._size) throw new de.polygonal.ds.error.AssertError("insufficient random values",{ fileName : "DA.hx", lineNumber : 969, className : "de.polygonal.ds.DA", methodName : "shuffle"});
 			var j = 0;
 			while(--s > 1) {
 				var i1 = Std["int"](rval.get(j++) * s);
@@ -3985,9 +3875,6 @@ de.polygonal.ds.DA.prototype = {
 			var i0 = first;
 			var i1 = i0 + (k >> 1);
 			var i2 = i0 + k - 1;
-			if(true != js.Boot.__instanceof(this._a[i0],de.polygonal.ds.Comparable)) throw new de.polygonal.ds.error.AssertError("element is not of type Comparable (" + Std.string(this._a[i0]) + ")",{ fileName : "DA.hx", lineNumber : 1072, className : "de.polygonal.ds.DA", methodName : "_quickSortComparable"});
-			if(true != js.Boot.__instanceof(this._a[i1],de.polygonal.ds.Comparable)) throw new de.polygonal.ds.error.AssertError("element is not of type Comparable (" + Std.string(this._a[i1]) + ")",{ fileName : "DA.hx", lineNumber : 1073, className : "de.polygonal.ds.DA", methodName : "_quickSortComparable"});
-			if(true != js.Boot.__instanceof(this._a[i2],de.polygonal.ds.Comparable)) throw new de.polygonal.ds.error.AssertError("element is not of type Comparable (" + Std.string(this._a[i2]) + ")",{ fileName : "DA.hx", lineNumber : 1074, className : "de.polygonal.ds.DA", methodName : "_quickSortComparable"});
 			var t0;
 			t0 = js.Boot.__cast(this._a[i0] , de.polygonal.ds.Comparable);
 			var t1;
@@ -3997,13 +3884,10 @@ de.polygonal.ds.DA.prototype = {
 			var mid;
 			var t = t0.compare(t2);
 			if(t < 0 && t0.compare(t1) < 0) if(t1.compare(t2) < 0) mid = i1; else mid = i2; else if(t0.compare(t1) < 0 && t1.compare(t2) < 0) if(t < 0) mid = i0; else mid = i2; else if(t2.compare(t0) < 0) mid = i1; else mid = i0;
-			if(true != js.Boot.__instanceof(this._a[mid],de.polygonal.ds.Comparable)) throw new de.polygonal.ds.error.AssertError("element is not of type Comparable (" + Std.string(this._a[mid]) + ")",{ fileName : "DA.hx", lineNumber : 1094, className : "de.polygonal.ds.DA", methodName : "_quickSortComparable"});
 			var pivot;
 			pivot = js.Boot.__cast(this._a[mid] , de.polygonal.ds.Comparable);
 			this._a[mid] = this._a[first];
 			while(lo < hi) {
-				if(true != js.Boot.__instanceof(this._a[lo],de.polygonal.ds.Comparable)) throw new de.polygonal.ds.error.AssertError("element is not of type Comparable (" + Std.string(this._a[lo]) + ")",{ fileName : "DA.hx", lineNumber : 1104, className : "de.polygonal.ds.DA", methodName : "_quickSortComparable"});
-				if(true != js.Boot.__instanceof(this._a[hi],de.polygonal.ds.Comparable)) throw new de.polygonal.ds.error.AssertError("element is not of type Comparable (" + Std.string(this._a[hi]) + ")",{ fileName : "DA.hx", lineNumber : 1105, className : "de.polygonal.ds.DA", methodName : "_quickSortComparable"});
 				while(pivot.compare(js.Boot.__cast(this._a[hi] , de.polygonal.ds.Comparable)) < 0 && lo < hi) hi--;
 				if(hi != lo) {
 					this._a[lo] = this._a[hi];
@@ -4043,11 +3927,9 @@ de.polygonal.ds.DA.prototype = {
 		while(_g1 < _g) {
 			var i = _g1++;
 			var x = this._a[i];
-			if(true != js.Boot.__instanceof(x,de.polygonal.ds.Comparable)) throw new de.polygonal.ds.error.AssertError("element is not of type Comparable",{ fileName : "DA.hx", lineNumber : 1155, className : "de.polygonal.ds.DA", methodName : "_insertionSortComparable"});
 			var j = i;
 			while(j > first) {
 				var y = this._a[j - 1];
-				if(true != js.Boot.__instanceof(y,de.polygonal.ds.Comparable)) throw new de.polygonal.ds.error.AssertError("element is not of type Comparable",{ fileName : "DA.hx", lineNumber : 1164, className : "de.polygonal.ds.DA", methodName : "_insertionSortComparable"});
 				if((js.Boot.__cast(y , de.polygonal.ds.Comparable)).compare(x) > 0) {
 					this._a[j] = y;
 					j--;
@@ -4099,7 +3981,6 @@ de.polygonal.ds.DAIterator.prototype = {
 		return this._a[this._i++];
 	}
 	,remove: function() {
-		if(true != this._i > 0) throw new de.polygonal.ds.error.AssertError("call next() before removing an element",{ fileName : "DA.hx", lineNumber : 1235, className : "de.polygonal.ds.DAIterator", methodName : "remove"});
 		this._f.removeAt(--this._i);
 		this._s--;
 	}
@@ -4113,12 +3994,10 @@ de.polygonal.ds.DAIterator.prototype = {
 };
 de.polygonal.ds.Graph = function(maxSize) {
 	if(maxSize == null) maxSize = -1;
-	if(maxSize == -1) this.maxSize = 2147483647; else this.maxSize = maxSize;
+	this.maxSize = -1;
 	this.clear();
 	this._size = 0;
 	this._iterator = null;
-	this._busy = false;
-	this._nodeSet = new de.polygonal.ds.ListSet();
 	this.autoClearMarks = false;
 	this.key = de.polygonal.ds.HashKey._counter++;
 	this.reuseIterator = false;
@@ -4146,10 +4025,6 @@ de.polygonal.ds.Graph.prototype = {
 		return new de.polygonal.ds.GraphNode(this,x);
 	}
 	,addNode: function(x) {
-		if(this.maxSize != -1) {
-			if(true != this._size < this.maxSize) throw new de.polygonal.ds.error.AssertError("size equals max size (" + this.maxSize + ")",{ fileName : "Graph.hx", lineNumber : 174, className : "de.polygonal.ds.Graph", methodName : "addNode"});
-		}
-		if(true != this._nodeSet.set(x)) throw new de.polygonal.ds.error.AssertError("node exists",{ fileName : "Graph.hx", lineNumber : 175, className : "de.polygonal.ds.Graph", methodName : "addNode"});
 		this._size++;
 		x.next = this._nodeList;
 		if(x.next != null) x.next.prev = x;
@@ -4157,7 +4032,6 @@ de.polygonal.ds.Graph.prototype = {
 		return x;
 	}
 	,removeNode: function(x) {
-		if(true != this._size > 0) throw new de.polygonal.ds.error.AssertError("graph is empty",{ fileName : "Graph.hx", lineNumber : 196, className : "de.polygonal.ds.Graph", methodName : "removeNode"});
 		this.unlink(x);
 		if(x.prev != null) x.prev.next = x.next;
 		if(x.next != null) x.next.prev = x.prev;
@@ -4166,9 +4040,6 @@ de.polygonal.ds.Graph.prototype = {
 	}
 	,addSingleArc: function(source,target,cost) {
 		if(cost == null) cost = 1.;
-		if(true != (source != null)) throw new de.polygonal.ds.error.AssertError("source is null",{ fileName : "Graph.hx", lineNumber : 217, className : "de.polygonal.ds.Graph", methodName : "addSingleArc"});
-		if(true != (target != null)) throw new de.polygonal.ds.error.AssertError("target is null",{ fileName : "Graph.hx", lineNumber : 218, className : "de.polygonal.ds.Graph", methodName : "addSingleArc"});
-		if(true != (source != target)) throw new de.polygonal.ds.error.AssertError("source equals target",{ fileName : "Graph.hx", lineNumber : 219, className : "de.polygonal.ds.Graph", methodName : "addSingleArc"});
 		var walker = this._nodeList;
 		while(walker != null) {
 			if(walker == source) {
@@ -4188,11 +4059,6 @@ de.polygonal.ds.Graph.prototype = {
 	}
 	,addMutualArc: function(source,target,cost) {
 		if(cost == null) cost = 1.;
-		if(true != (source != null)) throw new de.polygonal.ds.error.AssertError("source is null",{ fileName : "Graph.hx", lineNumber : 254, className : "de.polygonal.ds.Graph", methodName : "addMutualArc"});
-		if(true != (target != null)) throw new de.polygonal.ds.error.AssertError("target is null",{ fileName : "Graph.hx", lineNumber : 255, className : "de.polygonal.ds.Graph", methodName : "addMutualArc"});
-		if(true != (source != target)) throw new de.polygonal.ds.error.AssertError("source equals target",{ fileName : "Graph.hx", lineNumber : 256, className : "de.polygonal.ds.Graph", methodName : "addMutualArc"});
-		if(true != (source.getArc(target) == null)) throw new de.polygonal.ds.error.AssertError("arc from source to target already exists",{ fileName : "Graph.hx", lineNumber : 257, className : "de.polygonal.ds.Graph", methodName : "addMutualArc"});
-		if(true != (target.getArc(source) == null)) throw new de.polygonal.ds.error.AssertError("arc from target to source already exists",{ fileName : "Graph.hx", lineNumber : 258, className : "de.polygonal.ds.Graph", methodName : "addMutualArc"});
 		var walker = this._nodeList;
 		while(walker != null) {
 			if(walker == source) {
@@ -4212,9 +4078,6 @@ de.polygonal.ds.Graph.prototype = {
 		}
 	}
 	,unlink: function(node) {
-		if(true != (this._nodeList != null)) throw new de.polygonal.ds.error.AssertError("graph is empty",{ fileName : "Graph.hx", lineNumber : 297, className : "de.polygonal.ds.Graph", methodName : "unlink"});
-		if(true != this._nodeSet.has(node)) throw new de.polygonal.ds.error.AssertError("unknown node",{ fileName : "Graph.hx", lineNumber : 298, className : "de.polygonal.ds.Graph", methodName : "unlink"});
-		if(true != (node != null)) throw new de.polygonal.ds.error.AssertError("node is null",{ fileName : "Graph.hx", lineNumber : 299, className : "de.polygonal.ds.Graph", methodName : "unlink"});
 		var arc0 = node.arcList;
 		while(arc0 != null) {
 			var node1 = arc0.node;
@@ -4259,8 +4122,6 @@ de.polygonal.ds.Graph.prototype = {
 		if(recursive == null) recursive = false;
 		if(preflight == null) preflight = false;
 		if(this._size == 0) return;
-		if(true != (this._busy == false)) throw new de.polygonal.ds.error.AssertError("recursive call to iterative DFS",{ fileName : "Graph.hx", lineNumber : 395, className : "de.polygonal.ds.Graph", methodName : "DFS"});
-		this._busy = true;
 		if(this.autoClearMarks) this.clearMarks();
 		var c = 1;
 		if(seed == null) seed = this._nodeList;
@@ -4276,10 +4137,7 @@ de.polygonal.ds.Graph.prototype = {
 					var v1 = null;
 					var n = this._stack[0];
 					v1 = n.val;
-					if(!v1.visit(true,userData)) {
-						this._busy = false;
-						return;
-					}
+					if(!v1.visit(true,userData)) return;
 					while(c > 0) {
 						var n1 = this._stack[--c];
 						if(n1.marked) continue;
@@ -4300,10 +4158,7 @@ de.polygonal.ds.Graph.prototype = {
 				if(process(seed,true,userData)) this._DFSRecursiveProcess(seed,process,true,userData);
 			} else {
 				var n2 = this._stack[0];
-				if(!process(n2,true,userData)) {
-					this._busy = false;
-					return;
-				}
+				if(!process(n2,true,userData)) return;
 				while(c > 0) {
 					var n3 = this._stack[--c];
 					if(n3.marked) continue;
@@ -4349,13 +4204,10 @@ de.polygonal.ds.Graph.prototype = {
 				a3 = a3.next;
 			}
 		}
-		this._busy = false;
 	}
 	,BFS: function(preflight,seed,process,userData) {
 		if(preflight == null) preflight = false;
 		if(this._size == 0) return;
-		if(true != (this._busy == false)) throw new de.polygonal.ds.error.AssertError("recursive call to iterative BFS",{ fileName : "Graph.hx", lineNumber : 581, className : "de.polygonal.ds.Graph", methodName : "BFS"});
-		this._busy = true;
 		if(this.autoClearMarks) this.clearMarks();
 		var front = 0;
 		var c = 1;
@@ -4369,17 +4221,11 @@ de.polygonal.ds.Graph.prototype = {
 				var v = null;
 				var n = this._que[front];
 				v = n.val;
-				if(!v.visit(true,userData)) {
-					this._busy = false;
-					return;
-				}
+				if(!v.visit(true,userData)) return;
 				while(c > 0) {
 					n = this._que[front];
 					v = n.val;
-					if(!v.visit(false,userData)) {
-						this._busy = false;
-						return;
-					}
+					if(!v.visit(false,userData)) return;
 					var a = n.arcList;
 					while(a != null) {
 						var m = a.node;
@@ -4399,16 +4245,10 @@ de.polygonal.ds.Graph.prototype = {
 				}
 			} else {
 				var n1 = this._que[front];
-				if(!process(n1,true,userData)) {
-					this._busy = false;
-					return;
-				}
+				if(!process(n1,true,userData)) return;
 				while(c > 0) {
 					n1 = this._que[front];
-					if(!process(n1,false,userData)) {
-						this._busy = false;
-						return;
-					}
+					if(!process(n1,false,userData)) return;
 					var a1 = n1.arcList;
 					while(a1 != null) {
 						var m1 = a1.node;
@@ -4431,10 +4271,7 @@ de.polygonal.ds.Graph.prototype = {
 			while(c > 0) {
 				var n2 = this._que[front];
 				v1 = n2.val;
-				if(!v1.visit(false,userData)) {
-					this._busy = false;
-					return;
-				}
+				if(!v1.visit(false,userData)) return;
 				var a2 = n2.arcList;
 				while(a2 != null) {
 					var m2 = a2.node;
@@ -4453,10 +4290,7 @@ de.polygonal.ds.Graph.prototype = {
 			}
 		} else while(c > 0) {
 			var n3 = this._que[front];
-			if(!process(n3,false,userData)) {
-				this._busy = false;
-				return;
-			}
+			if(!process(n3,false,userData)) return;
 			var a3 = n3.arcList;
 			while(a3 != null) {
 				var m3 = a3.node;
@@ -4473,13 +4307,10 @@ de.polygonal.ds.Graph.prototype = {
 			front++;
 			c--;
 		}
-		this._busy = false;
 	}
 	,DLBFS: function(maxDepth,preflight,seed,process,userData) {
 		if(preflight == null) preflight = false;
 		if(this._size == 0) return;
-		if(true != (this._busy == false)) throw new de.polygonal.ds.error.AssertError("recursive call to iterative BFS",{ fileName : "Graph.hx", lineNumber : 790, className : "de.polygonal.ds.Graph", methodName : "DLBFS"});
-		this._busy = true;
 		if(this.autoClearMarks) this.clearMarks();
 		var front = 0;
 		var c = 1;
@@ -4497,17 +4328,11 @@ de.polygonal.ds.Graph.prototype = {
 				var v = null;
 				var n = this._que[front];
 				v = n.val;
-				if(!v.visit(true,userData)) {
-					this._busy = false;
-					return;
-				}
+				if(!v.visit(true,userData)) return;
 				while(c > 0) {
 					n = this._que[front];
 					v = n.val;
-					if(!v.visit(false,userData)) {
-						this._busy = false;
-						return;
-					}
+					if(!v.visit(false,userData)) return;
 					var a = n.arcList;
 					while(a != null) {
 						var m = a.node;
@@ -4529,16 +4354,10 @@ de.polygonal.ds.Graph.prototype = {
 				}
 			} else {
 				var n1 = this._que[front];
-				if(!process(n1,true,userData)) {
-					this._busy = false;
-					return;
-				}
+				if(!process(n1,true,userData)) return;
 				while(c > 0) {
 					n1 = this._que[front];
-					if(!process(n1,false,userData)) {
-						this._busy = false;
-						return;
-					}
+					if(!process(n1,false,userData)) return;
 					var a1 = n1.arcList;
 					while(a1 != null) {
 						var m1 = a1.node;
@@ -4563,10 +4382,7 @@ de.polygonal.ds.Graph.prototype = {
 			while(c > 0) {
 				var n2 = this._que[front];
 				v1 = n2.val;
-				if(!v1.visit(false,userData)) {
-					this._busy = false;
-					return;
-				}
+				if(!v1.visit(false,userData)) return;
 				var a2 = n2.arcList;
 				while(a2 != null) {
 					var m2 = a2.node;
@@ -4586,10 +4402,7 @@ de.polygonal.ds.Graph.prototype = {
 		} else while(c > 0) {
 			var n3 = this._que[front];
 			if(n3.depth > maxDepth) continue;
-			if(!process(n3,false,userData)) {
-				this._busy = false;
-				return;
-			}
+			if(!process(n3,false,userData)) return;
 			var a3 = n3.arcList;
 			while(a3 != null) {
 				var m3 = a3.node;
@@ -4606,7 +4419,6 @@ de.polygonal.ds.Graph.prototype = {
 			front++;
 			c--;
 		}
-		this._busy = false;
 	}
 	,toString: function() {
 		var s = "{ Graph size: " + this._size + " }";
@@ -4650,8 +4462,6 @@ de.polygonal.ds.Graph.prototype = {
 		}
 		this._que = null;
 		this._iterator = null;
-		this._nodeSet.free();
-		this._nodeSet = null;
 	}
 	,contains: function(x) {
 		var found = false;
@@ -4741,7 +4551,6 @@ de.polygonal.ds.Graph.prototype = {
 		} else if(copier == null) {
 			var c = null;
 			while(n != null) {
-				if(true != js.Boot.__instanceof(n.val,de.polygonal.ds.Cloneable)) throw new de.polygonal.ds.error.AssertError("element is not of type Cloneable (" + Std.string(n.val) + ")",{ fileName : "Graph.hx", lineNumber : 1269, className : "de.polygonal.ds.Graph", methodName : "clone"});
 				c = n.val;
 				var m1 = copy.addNode(copy.createNode(c.clone()));
 				t[i++] = m1;
@@ -4951,16 +4760,12 @@ de.polygonal.ds.GraphNode.prototype = {
 		return new de.polygonal.ds.NodeValIterator(this);
 	}
 	,isConnected: function(target) {
-		if(true != (target != null)) throw new de.polygonal.ds.error.AssertError("target is null",{ fileName : "GraphNode.hx", lineNumber : 134, className : "de.polygonal.ds.GraphNode", methodName : "isConnected"});
 		return this.getArc(target) != null;
 	}
 	,isMutuallyConnected: function(target) {
-		if(true != (target != null)) throw new de.polygonal.ds.error.AssertError("target is null",{ fileName : "GraphNode.hx", lineNumber : 148, className : "de.polygonal.ds.GraphNode", methodName : "isMutuallyConnected"});
 		return this.getArc(target) != null && target.getArc(this) != null;
 	}
 	,getArc: function(target) {
-		if(true != (target != null)) throw new de.polygonal.ds.error.AssertError("target is null",{ fileName : "GraphNode.hx", lineNumber : 163, className : "de.polygonal.ds.GraphNode", methodName : "getArc"});
-		if(true != (target != this)) throw new de.polygonal.ds.error.AssertError("target equals this node",{ fileName : "GraphNode.hx", lineNumber : 164, className : "de.polygonal.ds.GraphNode", methodName : "getArc"});
 		var found = false;
 		var a = this.arcList;
 		while(a != null) {
@@ -4974,8 +4779,6 @@ de.polygonal.ds.GraphNode.prototype = {
 	}
 	,addArc: function(target,cost) {
 		if(cost == null) cost = 1.;
-		if(true != (target != this)) throw new de.polygonal.ds.error.AssertError("target is null",{ fileName : "GraphNode.hx", lineNumber : 194, className : "de.polygonal.ds.GraphNode", methodName : "addArc"});
-		if(true != (this.getArc(target) == null)) throw new de.polygonal.ds.error.AssertError("arc to target already exists",{ fileName : "GraphNode.hx", lineNumber : 195, className : "de.polygonal.ds.GraphNode", methodName : "addArc"});
 		var arc;
 		if(this._graph.borrowArc != null) arc = this._graph.borrowArc(target,cost); else arc = new de.polygonal.ds.GraphArc(target,cost);
 		arc.next = this.arcList;
@@ -4983,8 +4786,6 @@ de.polygonal.ds.GraphNode.prototype = {
 		this.arcList = arc;
 	}
 	,removeArc: function(target) {
-		if(true != (target != this)) throw new de.polygonal.ds.error.AssertError("target is null",{ fileName : "GraphNode.hx", lineNumber : 217, className : "de.polygonal.ds.GraphNode", methodName : "removeArc"});
-		if(true != (this.getArc(target) != null)) throw new de.polygonal.ds.error.AssertError("arc to target does not exist",{ fileName : "GraphNode.hx", lineNumber : 218, className : "de.polygonal.ds.GraphNode", methodName : "removeArc"});
 		var arc = this.getArc(target);
 		if(arc != null) {
 			if(arc.prev != null) arc.prev.next = arc.next;
@@ -5073,13 +4874,8 @@ de.polygonal.ds.HashKey.next = function() {
 de.polygonal.ds.Heap = function(reservedSize,maxSize) {
 	if(maxSize == null) maxSize = -1;
 	if(reservedSize == null) reservedSize = 0;
-	if(maxSize == -1) this.maxSize = 2147483647; else this.maxSize = maxSize;
-	if(reservedSize > 0) {
-		if(this.maxSize != -1) {
-			if(true != reservedSize <= this.maxSize) throw new de.polygonal.ds.error.AssertError("reserved size is greater than allowed size",{ fileName : "Heap.hx", lineNumber : 99, className : "de.polygonal.ds.Heap", methodName : "new"});
-		}
-		this._a = de.polygonal.ds.ArrayUtil.alloc(reservedSize + 1);
-	} else this._a = new Array();
+	this.maxSize = -1;
+	if(reservedSize > 0) this._a = de.polygonal.ds.ArrayUtil.alloc(reservedSize + 1); else this._a = new Array();
 	this._a[0] = null;
 	this._size = 0;
 	this._iterator = null;
@@ -5123,11 +4919,9 @@ de.polygonal.ds.Heap.prototype = {
 		}
 	}
 	,top: function() {
-		if(true != this._size > 0) throw new de.polygonal.ds.error.AssertError("heap is empty",{ fileName : "Heap.hx", lineNumber : 170, className : "de.polygonal.ds.Heap", methodName : "top"});
 		return this._a[1];
 	}
 	,bottom: function() {
-		if(true != this._size > 0) throw new de.polygonal.ds.error.AssertError("heap is empty",{ fileName : "Heap.hx", lineNumber : 184, className : "de.polygonal.ds.Heap", methodName : "bottom"});
 		if(this._size == 1) return this._a[1];
 		var a = this._a[1];
 		var b;
@@ -5141,16 +4935,11 @@ de.polygonal.ds.Heap.prototype = {
 		return a;
 	}
 	,add: function(x) {
-		if(true != (x != null)) throw new de.polygonal.ds.error.AssertError("x is null",{ fileName : "Heap.hx", lineNumber : 208, className : "de.polygonal.ds.Heap", methodName : "add"});
-		if(this.maxSize != -1) {
-			if(true != this._size <= this.maxSize) throw new de.polygonal.ds.error.AssertError("size equals max size (" + this.maxSize + ")",{ fileName : "Heap.hx", lineNumber : 216, className : "de.polygonal.ds.Heap", methodName : "add"});
-		}
 		this.__set(++this._size,x);
 		x.position = this._size;
 		this._upheap(this._size);
 	}
 	,pop: function() {
-		if(true != this._size > 0) throw new de.polygonal.ds.error.AssertError("heap is empty",{ fileName : "Heap.hx", lineNumber : 233, className : "de.polygonal.ds.Heap", methodName : "pop"});
 		var x = this._a[1];
 		this._a[1] = this._a[this._size];
 		this._downheap(1);
@@ -5239,13 +5028,11 @@ de.polygonal.ds.Heap.prototype = {
 		}
 	}
 	,contains: function(x) {
-		if(true != (x != null)) throw new de.polygonal.ds.error.AssertError("x is null",{ fileName : "Heap.hx", lineNumber : 453, className : "de.polygonal.ds.Heap", methodName : "contains"});
 		var position = x.position;
 		return position > 0 && position <= this._size && this._a[position] == x;
 	}
 	,remove: function(x) {
 		if(this._size == 0) return false; else {
-			if(true != (x != null)) throw new de.polygonal.ds.error.AssertError("x is null",{ fileName : "Heap.hx", lineNumber : 472, className : "de.polygonal.ds.Heap", methodName : "remove"});
 			if(x.position == 1) this.pop(); else {
 				var p = x.position;
 				this._a[p] = this._a[this._size];
@@ -5307,7 +5094,6 @@ de.polygonal.ds.Heap.prototype = {
 			while(_g11 < _g2) {
 				var i1 = _g11++;
 				var e = this._a[i1];
-				if(true != js.Boot.__instanceof(e,de.polygonal.ds.Cloneable)) throw new de.polygonal.ds.error.AssertError("element is not of type Cloneable (" + Std.string(this._a[i1]) + ")",{ fileName : "Heap.hx", lineNumber : 600, className : "de.polygonal.ds.Heap", methodName : "clone"});
 				var c = e.clone();
 				c.position = e.position;
 				copy._a[i1] = c;
@@ -5419,7 +5205,6 @@ de.polygonal.ds.HeapIterator.prototype = {
 		return this._a[this._i++];
 	}
 	,remove: function() {
-		if(true != this._i > 0) throw new de.polygonal.ds.error.AssertError("call next() before removing an element",{ fileName : "Heap.hx", lineNumber : 757, className : "de.polygonal.ds.HeapIterator", methodName : "remove"});
 		this._f.remove(this._a[this._i - 1]);
 	}
 	,__a: function(f) {
@@ -5444,122 +5229,10 @@ de.polygonal.ds._Heap.HeapElementWrapper.prototype = {
 	}
 	,__class__: de.polygonal.ds._Heap.HeapElementWrapper
 };
-de.polygonal.ds.Set = function() { };
-$hxClasses["de.polygonal.ds.Set"] = de.polygonal.ds.Set;
-de.polygonal.ds.Set.__name__ = ["de","polygonal","ds","Set"];
-de.polygonal.ds.Set.__interfaces__ = [de.polygonal.ds.Collection];
-de.polygonal.ds.Set.prototype = {
-	__class__: de.polygonal.ds.Set
-};
-de.polygonal.ds.ListSet = function() {
-	this._a = new de.polygonal.ds.DA();
-	this.key = de.polygonal.ds.HashKey._counter++;
-	this.reuseIterator = false;
-};
-$hxClasses["de.polygonal.ds.ListSet"] = de.polygonal.ds.ListSet;
-de.polygonal.ds.ListSet.__name__ = ["de","polygonal","ds","ListSet"];
-de.polygonal.ds.ListSet.__interfaces__ = [de.polygonal.ds.Set];
-de.polygonal.ds.ListSet.prototype = {
-	toString: function() {
-		var s = "{ ListSet size: " + this.size() + " }";
-		if(this.isEmpty()) return s;
-		s += "\n[\n";
-		var _g1 = 0;
-		var _g = this.size();
-		while(_g1 < _g) {
-			var i = _g1++;
-			s += "  " + Std.string(this._a.get(i)) + "\n";
-		}
-		s += "]";
-		return s;
-	}
-	,has: function(x) {
-		return this._a.contains(x);
-	}
-	,set: function(x) {
-		if(this._a.contains(x)) return false; else {
-			this._a.pushBack(x);
-			return true;
-		}
-	}
-	,merge: function(x,assign,copier) {
-		if(assign) {
-			var $it0 = x.iterator();
-			while( $it0.hasNext() ) {
-				var val = $it0.next();
-				this.set(val);
-			}
-		} else if(copier != null) {
-			var $it1 = x.iterator();
-			while( $it1.hasNext() ) {
-				var val1 = $it1.next();
-				this.set(copier(val1));
-			}
-		} else {
-			var $it2 = x.iterator();
-			while( $it2.hasNext() ) {
-				var val2 = $it2.next();
-				if(true != js.Boot.__instanceof(val2,de.polygonal.ds.Cloneable)) throw new de.polygonal.ds.error.AssertError("element is not of type Cloneable (" + Std.string(val2) + ")",{ fileName : "ListSet.hx", lineNumber : 144, className : "de.polygonal.ds.ListSet", methodName : "merge"});
-				this.set(val2.clone());
-			}
-		}
-	}
-	,free: function() {
-		this._a.free();
-		this._a = null;
-	}
-	,contains: function(x) {
-		return this._a.contains(x);
-	}
-	,remove: function(x) {
-		return this._a.remove(x);
-	}
-	,clear: function(purge) {
-		if(purge == null) purge = false;
-		this._a.clear(purge);
-	}
-	,iterator: function() {
-		this._a.reuseIterator = this.reuseIterator;
-		return this._a.iterator();
-	}
-	,isEmpty: function() {
-		return this._a._size == 0;
-	}
-	,size: function() {
-		return this._a._size;
-	}
-	,toArray: function() {
-		return this._a.toArray();
-	}
-	,clone: function(assign,copier) {
-		if(assign == null) assign = true;
-		var copy = Type.createEmptyInstance(de.polygonal.ds.ListSet);
-		copy.key = de.polygonal.ds.HashKey._counter++;
-		copy._a = this._a.clone(assign,copier);
-		return copy;
-	}
-	,__class__: de.polygonal.ds.ListSet
-};
 de.polygonal.ds.error = {};
 de.polygonal.ds.error.Assert = function() { };
 $hxClasses["de.polygonal.ds.error.Assert"] = de.polygonal.ds.error.Assert;
 de.polygonal.ds.error.Assert.__name__ = ["de","polygonal","ds","error","Assert"];
-de.polygonal.ds.error.AssertError = function(message,info) {
-	this.message = message;
-	var stack = haxe.CallStack.toString(haxe.CallStack.callStack());
-	stack = new EReg("\nCalled from de\\.polygonal\\.ds\\.error\\.AssertError.*$","m").replace(stack,"");
-	var s;
-	if(message == null) s = ""; else s = "\"" + message + "\"";
-	throw "Assertation " + s + " failed in file " + info.fileName + ", line " + info.lineNumber + ", " + info.className + ":: " + info.methodName + "\nCall stack:" + stack;
-};
-$hxClasses["de.polygonal.ds.error.AssertError"] = de.polygonal.ds.error.AssertError;
-de.polygonal.ds.error.AssertError.__name__ = ["de","polygonal","ds","error","AssertError"];
-de.polygonal.ds.error.AssertError.prototype = {
-	toString: function() {
-		return this.message;
-	}
-	,__class__: de.polygonal.ds.error.AssertError
-};
 var haxe = {};
 haxe.StackItem = $hxClasses["haxe.StackItem"] = { __ename__ : true, __constructs__ : ["CFunction","Module","FilePos","Method","LocalFunction"] };
 haxe.StackItem.CFunction = ["CFunction",0];
@@ -6202,12 +5875,6 @@ haxe.io.Error.OutsideBounds.toString = $estr;
 haxe.io.Error.OutsideBounds.__enum__ = haxe.io.Error;
 haxe.io.Error.Custom = function(e) { var $x = ["Custom",3,e]; $x.__enum__ = haxe.io.Error; $x.toString = $estr; return $x; };
 haxe.io.Path = function(path) {
-	switch(path) {
-	case ".":case "..":
-		this.dir = path;
-		this.file = "";
-		return;
-	}
 	var c1 = path.lastIndexOf("/");
 	var c2 = path.lastIndexOf("\\");
 	if(c1 < c2) {
@@ -6356,7 +6023,6 @@ hxDaedalus.ai.AStar.prototype = {
 		var fillDatas;
 		while(true) {
 			if(this.sortedOpenedFaces.length == 0) {
-				haxe.Log.trace("AStar no path found",{ fileName : "AStar.hx", lineNumber : 157, className : "hxDaedalus.ai.AStar", methodName : "findPath"});
 				this.curFace = null;
 				break;
 			}
@@ -6370,6 +6036,8 @@ hxDaedalus.ai.AStar.prototype = {
 					if(this.curFace != this.fromFace && this._radius > 0 && !this.isWalkableByRadius(this.entryEdges.h[this.curFace.__id__],this.curFace,innerEdge)) continue;
 					fromPoint.x = this.entryX.h[this.curFace.__id__];
 					fromPoint.y = this.entryY.h[this.curFace.__id__];
+					entryPoint.x = fromPoint.x;
+					entryPoint.y = fromPoint.y;
 					entryPoint.x = (innerEdge.get_originVertex().get_pos().x + innerEdge.get_destinationVertex().get_pos().x) / 2;
 					entryPoint.y = (innerEdge.get_originVertex().get_pos().y + innerEdge.get_destinationVertex().get_pos().y) / 2;
 					distancePoint.x = entryPoint.x - toX;
@@ -6534,6 +6202,7 @@ hxDaedalus.ai.EntityAI = function() {
 	this.x = this.y = 0;
 	this.dirNormX = 1;
 	this.dirNormY = 0;
+	this.angleFOV = 60;
 };
 $hxClasses["hxDaedalus.ai.EntityAI"] = hxDaedalus.ai.EntityAI;
 hxDaedalus.ai.EntityAI.__name__ = ["hxDaedalus","ai","EntityAI"];
@@ -6770,7 +6439,7 @@ hxDaedalus.ai.Funnel.prototype = {
 			} else if(currEdge.get_destinationVertex() == fromFromVertex) {
 				currVertex = currEdge.get_originVertex();
 				fromVertex = fromFromVertex;
-			} else haxe.Log.trace("IMPOSSIBLE TO IDENTIFY THE VERTEX !!!",{ fileName : "Funnel.hx", lineNumber : 281, className : "hxDaedalus.ai.Funnel", methodName : "findPath"});
+			} else null;
 			newPointA = this.getCopyPoint(currVertex.get_pos());
 			pointsList.push(newPointA);
 			direction = -verticesDoneSide.h[fromVertex.__id__];
@@ -6973,10 +6642,7 @@ hxDaedalus.ai.Funnel.prototype = {
 					pTangent1 = p1;
 					pTangent2 = this.getPoint(tangentsResult[0],tangentsResult[1]);
 				}
-			} else {
-				haxe.Log.trace("NO TANGENT",{ fileName : "Funnel.hx", lineNumber : 575, className : "hxDaedalus.ai.Funnel", methodName : "adjustWithTangents"});
-				return;
-			}
+			} else return;
 		} else if(!applyRadiusToP2) {
 			if(hxDaedalus.data.math.Geom2D.tangentsPointToCircle(p2.x,p2.y,p1.x,p1.y,this._radius,tangentsResult)) {
 				if(tangentsResult.length > 0) {
@@ -6988,10 +6654,7 @@ hxDaedalus.ai.Funnel.prototype = {
 						pTangent2 = p2;
 					}
 				}
-			} else {
-				haxe.Log.trace("NO TANGENT",{ fileName : "Funnel.hx", lineNumber : 600, className : "hxDaedalus.ai.Funnel", methodName : "adjustWithTangents"});
-				return;
-			}
+			} else return;
 		} else if(side1 == 1 && side2 == 1) {
 			hxDaedalus.data.math.Geom2D.tangentsParalCircleToCircle(this._radius,p1.x,p1.y,p2.x,p2.y,tangentsResult);
 			pTangent1 = this.getPoint(tangentsResult[2],tangentsResult[3]);
@@ -7004,17 +6667,11 @@ hxDaedalus.ai.Funnel.prototype = {
 			if(hxDaedalus.data.math.Geom2D.tangentsCrossCircleToCircle(this._radius,p1.x,p1.y,p2.x,p2.y,tangentsResult)) {
 				pTangent1 = this.getPoint(tangentsResult[2],tangentsResult[3]);
 				pTangent2 = this.getPoint(tangentsResult[6],tangentsResult[7]);
-			} else {
-				haxe.Log.trace("NO TANGENT, points are too close for radius",{ fileName : "Funnel.hx", lineNumber : 637, className : "hxDaedalus.ai.Funnel", methodName : "adjustWithTangents"});
-				return;
-			}
+			} else return;
 		} else if(hxDaedalus.data.math.Geom2D.tangentsCrossCircleToCircle(this._radius,p1.x,p1.y,p2.x,p2.y,tangentsResult)) {
 			pTangent1 = this.getPoint(tangentsResult[0],tangentsResult[1]);
 			pTangent2 = this.getPoint(tangentsResult[4],tangentsResult[5]);
-		} else {
-			haxe.Log.trace("NO TANGENT, points are too close for radius",{ fileName : "Funnel.hx", lineNumber : 654, className : "hxDaedalus.ai.Funnel", methodName : "adjustWithTangents"});
-			return;
-		}
+		} else return;
 		var successor = pointSuccessor.h[p1.__id__];
 		var distance;
 		while(successor != p2) {
@@ -7176,18 +6833,13 @@ hxDaedalus.ai.PathFinder.prototype = {
 	}
 	,findPath: function(toX,toY,resultPath) {
 		resultPath.splice(0,resultPath.length);
-		hxDaedalus.debug.Debug.assertFalse(this._mesh == null,"Mesh missing",{ fileName : "PathFinder.hx", lineNumber : 51, className : "hxDaedalus.ai.PathFinder", methodName : "findPath"});
-		hxDaedalus.debug.Debug.assertFalse(this.entity == null,"Entity missing",{ fileName : "PathFinder.hx", lineNumber : 52, className : "hxDaedalus.ai.PathFinder", methodName : "findPath"});
 		if(hxDaedalus.data.math.Geom2D.isCircleIntersectingAnyConstraint(toX,toY,this.entity.get_radius(),this._mesh)) return;
 		this.astar.set_radius(this.entity.get_radius());
 		this.funnel.set_radius(this.entity.get_radius());
 		this.listFaces.splice(0,this.listFaces.length);
 		this.listEdges.splice(0,this.listEdges.length);
 		this.astar.findPath(this.entity.x,this.entity.y,toX,toY,this.listFaces,this.listEdges);
-		if(this.listFaces.length == 0) {
-			haxe.Log.trace("PathFinder listFaces.length == 0",{ fileName : "PathFinder.hx", lineNumber : 63, className : "hxDaedalus.ai.PathFinder", methodName : "findPath"});
-			return;
-		}
+		if(this.listFaces.length == 0) return;
 		this.funnel.findPath(this.entity.x,this.entity.y,toX,toY,this.listFaces,this.listEdges,resultPath);
 	}
 	,__class__: hxDaedalus.ai.PathFinder
@@ -7256,7 +6908,6 @@ hxDaedalus.ai.trajectory.LinearPathSampler.prototype = {
 	}
 	,reset: function() {
 		if(this._path.length > 0) {
-			hxDaedalus.debug.Debug.assertTrue((this._path.length & 1) == 0,"Wrong length",{ fileName : "LinearPathSampler.hx", lineNumber : 100, className : "hxDaedalus.ai.trajectory.LinearPathSampler", methodName : "reset"});
 			this._currentX = this._path[0];
 			this._currentY = this._path[1];
 			this._iPrev = 0;
@@ -7369,7 +7020,7 @@ hxDaedalus.ai.trajectory.LinearPathSampler.prototype = {
 	}
 	,updateEntity: function() {
 		if(this.entity == null) return;
-		hxDaedalus.debug.Debug.assertFalse(isNaN(this._currentX) && isNaN(this._currentY),null,{ fileName : "LinearPathSampler.hx", lineNumber : 228, className : "hxDaedalus.ai.trajectory.LinearPathSampler", methodName : "updateEntity"});
+		hxDaedalus.debug.Debug.assertFalse(Math.isNaN(this._currentX) && Math.isNaN(this._currentY),null,{ fileName : "LinearPathSampler.hx", lineNumber : 228, className : "hxDaedalus.ai.trajectory.LinearPathSampler", methodName : "updateEntity"});
 		this.entity.x = this._currentX;
 		this.entity.y = this._currentY;
 	}
@@ -8062,12 +7713,9 @@ hxDaedalus.data.Mesh.prototype = {
 		var _g = this._edges.length;
 		while(_g1 < _g) {
 			var i = _g1++;
-			if(this._edges[i].get_nextLeftEdge() == null) {
-				haxe.Log.trace("!!! missing nextLeftEdge",{ fileName : "Mesh.hx", lineNumber : 794, className : "hxDaedalus.data.Mesh", methodName : "check"});
-				return;
-			}
+			if(this._edges[i].get_nextLeftEdge() == null) return;
 		}
-		haxe.Log.trace("check OK",{ fileName : "Mesh.hx", lineNumber : 798, className : "hxDaedalus.data.Mesh", methodName : "check"});
+		null;
 	}
 	,insertVertex: function(x,y) {
 		if(x < 0 || y < 0 || x > this._width || y > this._height) return null;
@@ -8494,11 +8142,7 @@ hxDaedalus.data.Mesh.prototype = {
 		}
 	}
 	,triangulate: function(bound,isReal) {
-		if(bound.length < 2) {
-			haxe.Log.trace("BREAK ! the hole has less than 2 edges",{ fileName : "Mesh.hx", lineNumber : 1396, className : "hxDaedalus.data.Mesh", methodName : "triangulate"});
-			return;
-		} else if(bound.length == 2) {
-			haxe.Log.trace("BREAK ! the hole has only 2 edges",{ fileName : "Mesh.hx", lineNumber : 1403, className : "hxDaedalus.data.Mesh", methodName : "triangulate"});
+		if(bound.length < 2) return; else if(bound.length == 2) {
 			hxDaedalus.debug.Debug.trace("  - edge0: " + bound[0].get_originVertex().get_id() + " -> " + bound[0].get_destinationVertex().get_id(),{ fileName : "Mesh.hx", lineNumber : 1404, className : "hxDaedalus.data.Mesh", methodName : "triangulate"});
 			hxDaedalus.debug.Debug.trace("  - edge1: " + bound[1].get_originVertex().get_id() + " -> " + bound[1].get_destinationVertex().get_id(),{ fileName : "Mesh.hx", lineNumber : 1405, className : "hxDaedalus.data.Mesh", methodName : "triangulate"});
 			return;
@@ -8552,7 +8196,6 @@ hxDaedalus.data.Mesh.prototype = {
 				}
 			}
 			if(!isDelaunay) {
-				haxe.Log.trace("NO DELAUNAY FOUND",{ fileName : "Mesh.hx", lineNumber : 1476, className : "hxDaedalus.data.Mesh", methodName : "triangulate"});
 				var s = "";
 				var _g11 = 0;
 				var _g4 = bound.length;
@@ -9156,21 +8799,19 @@ hxDaedalus.data.math.Geom2D.locatePosition = function(x,y,mesh) {
 	hxDaedalus.data.math.Geom2D._randGen.set_seed(x * 10 + 4 * y | 0);
 	var i;
 	hxDaedalus.data.math.Geom2D.__samples.splice(0,hxDaedalus.data.math.Geom2D.__samples.length);
-	var numSamples = Std["int"](Math.pow(mesh._vertices.length,0.33333333333333331));
+	var numSamples = Std["int"](Math.pow(mesh._vertices.length,0.333333333333333315));
 	hxDaedalus.data.math.Geom2D._randGen.rangeMin = 0;
 	hxDaedalus.data.math.Geom2D._randGen.rangeMax = mesh._vertices.length - 1;
 	var _g = 0;
 	while(_g < numSamples) {
 		var i1 = _g++;
 		var _rnd = hxDaedalus.data.math.Geom2D._randGen.next();
-		hxDaedalus.debug.Debug.assertFalse(_rnd < 0 || _rnd > mesh._vertices.length - 1,"_rnd: " + _rnd,{ fileName : "Geom2D.hx", lineNumber : 67, className : "hxDaedalus.data.math.Geom2D", methodName : "locatePosition"});
-		hxDaedalus.debug.Debug.assertFalse(mesh._vertices == null,"vertices: " + mesh._vertices.length,{ fileName : "Geom2D.hx", lineNumber : 68, className : "hxDaedalus.data.math.Geom2D", methodName : "locatePosition"});
 		hxDaedalus.data.math.Geom2D.__samples.push(mesh._vertices[_rnd]);
 	}
 	var currVertex;
 	var currVertexPos;
 	var distSquared;
-	var minDistSquared = Infinity;
+	var minDistSquared = Math.POSITIVE_INFINITY;
 	var closedVertex = null;
 	var _g1 = 0;
 	while(_g1 < numSamples) {
@@ -9211,14 +8852,11 @@ hxDaedalus.data.math.Geom2D.locatePosition = function(x,y,mesh) {
 	}(this))) {
 		faceVisited.h[currFace.__id__];
 		numIter++;
-		if(numIter == 50) haxe.Log.trace("WALK TAKE MORE THAN 50 LOOP",{ fileName : "Geom2D.hx", lineNumber : 107, className : "hxDaedalus.data.math.Geom2D", methodName : "locatePosition"});
+		if(numIter == 50) null;
 		iterEdge.set_fromFace(currFace);
 		do {
 			currEdge = iterEdge.next();
-			if(currEdge == null) {
-				haxe.Log.trace("KILL PATH",{ fileName : "Geom2D.hx", lineNumber : 115, className : "hxDaedalus.data.math.Geom2D", methodName : "locatePosition"});
-				return hxDaedalus.data.math.Intersection.ENull;
-			}
+			if(currEdge == null) return hxDaedalus.data.math.Intersection.ENull;
 			relativPos = hxDaedalus.data.math.Geom2D.getRelativePosition(x,y,currEdge);
 		} while(relativPos == 1 || relativPos == 0);
 		currFace = currEdge.get_rightFace();
@@ -10092,7 +9730,6 @@ hxDaedalus.data.math.ShapeSimplifier.__name__ = ["hxDaedalus","data","math","Sha
 hxDaedalus.data.math.ShapeSimplifier.simplify = function(coords,epsilon) {
 	if(epsilon == null) epsilon = 1;
 	var len = coords.length;
-	hxDaedalus.debug.Debug.assertFalse((len & 1) != 0,"Wrong size",{ fileName : "ShapeSimplifier.hx", lineNumber : 18, className : "hxDaedalus.data.math.ShapeSimplifier", methodName : "simplify"});
 	if(len <= 4) return [].concat(coords);
 	var firstPointX = coords[0];
 	var firstPointY = coords[1];
@@ -10124,16 +9761,16 @@ hxDaedalus.debug.Debug = function() { };
 $hxClasses["hxDaedalus.debug.Debug"] = hxDaedalus.debug.Debug;
 hxDaedalus.debug.Debug.__name__ = ["hxDaedalus","debug","Debug"];
 hxDaedalus.debug.Debug.assertTrue = function(cond,message,pos) {
-	if(!cond) throw pos.fileName + ":" + pos.lineNumber + ": Expected true but was false! " + (message != null?message:"");
+	return;
 };
 hxDaedalus.debug.Debug.assertFalse = function(cond,message,pos) {
-	if(cond) throw pos.fileName + ":" + pos.lineNumber + ": Expected false but was true! " + (message != null?message:"");
+	return;
 };
 hxDaedalus.debug.Debug.assertEquals = function(expected,actual,message,pos) {
-	if(actual != expected) throw pos.fileName + ":" + pos.lineNumber + ": Expected '" + Std.string(expected) + "' but was '" + Std.string(actual) + "' " + (message != null?message:"");
+	return;
 };
 hxDaedalus.debug.Debug.trace = function(value,pos) {
-	haxe.Log.trace(value,pos);
+	return;
 };
 hxDaedalus.factories = {};
 hxDaedalus.factories.BitmapObject = function() {
@@ -10144,7 +9781,6 @@ hxDaedalus.factories.BitmapObject.buildFromBmpData = function(bmpData,simplifica
 	if(simplificationEpsilon == null) simplificationEpsilon = 1;
 	var i;
 	var j;
-	hxDaedalus.debug.Debug.assertTrue(bmpData.width > 0 && bmpData.height > 0,"Invalid `bmpData` size (" + bmpData.width + ", " + bmpData.height + ")",{ fileName : "BitmapObject.hx", lineNumber : 24, className : "hxDaedalus.factories.BitmapObject", methodName : "buildFromBmpData"});
 	var shapes = hxDaedalus.data.math.Potrace.buildShapes(bmpData,debugBmp,debugShape);
 	if(simplificationEpsilon >= 1) {
 		var _g1 = 0;
@@ -11228,6 +10864,714 @@ lime.Assets.unloadLibrary = function(name) {
 lime.Assets.library_onEvent = function(library,type) {
 	if(type == "change") lime.Assets.cache.clear();
 };
+lime._Assets = {};
+lime._Assets.AssetType_Impl_ = function() { };
+$hxClasses["lime._Assets.AssetType_Impl_"] = lime._Assets.AssetType_Impl_;
+lime._Assets.AssetType_Impl_.__name__ = ["lime","_Assets","AssetType_Impl_"];
+lime._backend = {};
+lime._backend.html5 = {};
+lime._backend.html5.HTML5Application = function(parent) {
+	this.parent = parent;
+	lime.app.Application.__instance = parent;
+	lime.audio.AudioManager.init();
+};
+$hxClasses["lime._backend.html5.HTML5Application"] = lime._backend.html5.HTML5Application;
+lime._backend.html5.HTML5Application.__name__ = ["lime","_backend","html5","HTML5Application"];
+lime._backend.html5.HTML5Application.handleUpdateEvent = function(__) {
+	lime.app.Application.__instance.update(16);
+	var listeners = lime.app.Application.onUpdate.listeners;
+	var repeat = lime.app.Application.onUpdate.repeat;
+	var length = listeners.length;
+	var i = 0;
+	while(i < length) {
+		listeners[i](16);
+		if(!repeat[i]) {
+			lime.app.Application.onUpdate.remove(listeners[i]);
+			length--;
+		} else i++;
+	}
+	lime.graphics.Renderer.render();
+	window.requestAnimationFrame(lime._backend.html5.HTML5Application.handleUpdateEvent);
+};
+lime._backend.html5.HTML5Application.prototype = {
+	convertKeyCode: function(keyCode) {
+		if(keyCode >= 65 && keyCode <= 90) return keyCode + 32;
+		switch(keyCode) {
+		case 16:
+			return 1073742049;
+		case 17:
+			return 1073742048;
+		case 18:
+			return 1073742050;
+		case 20:
+			return 1073741881;
+		case 144:
+			return 1073741907;
+		case 37:
+			return 1073741904;
+		case 38:
+			return 1073741906;
+		case 39:
+			return 1073741903;
+		case 40:
+			return 1073741905;
+		case 45:
+			return 1073741897;
+		case 46:
+			return 127;
+		case 36:
+			return 1073741898;
+		case 35:
+			return 1073741901;
+		case 33:
+			return 1073741899;
+		case 34:
+			return 1073741902;
+		case 112:
+			return 1073741882;
+		case 113:
+			return 1073741883;
+		case 114:
+			return 1073741884;
+		case 115:
+			return 1073741885;
+		case 116:
+			return 1073741886;
+		case 117:
+			return 1073741887;
+		case 118:
+			return 1073741888;
+		case 119:
+			return 1073741889;
+		case 120:
+			return 1073741890;
+		case 121:
+			return 1073741891;
+		case 122:
+			return 1073741892;
+		case 123:
+			return 1073741893;
+		}
+		return keyCode;
+	}
+	,create: function(config) {
+		this.parent.config = config;
+		window.addEventListener("keydown",$bind(this,this.handleKeyEvent),false);
+		window.addEventListener("keyup",$bind(this,this.handleKeyEvent),false);
+		lime.ui.KeyEventManager.onKeyDown.add(($_=this.parent,$bind($_,$_.onKeyDown)));
+		lime.ui.KeyEventManager.onKeyUp.add(($_=this.parent,$bind($_,$_.onKeyUp)));
+		lime.ui.MouseEventManager.onMouseDown.add(($_=this.parent,$bind($_,$_.onMouseDown)));
+		lime.ui.MouseEventManager.onMouseMove.add(($_=this.parent,$bind($_,$_.onMouseMove)));
+		lime.ui.MouseEventManager.onMouseUp.add(($_=this.parent,$bind($_,$_.onMouseUp)));
+		lime.ui.MouseEventManager.onMouseWheel.add(($_=this.parent,$bind($_,$_.onMouseWheel)));
+		lime.ui.TouchEventManager.onTouchStart.add(($_=this.parent,$bind($_,$_.onTouchStart)));
+		lime.ui.TouchEventManager.onTouchMove.add(($_=this.parent,$bind($_,$_.onTouchMove)));
+		lime.ui.TouchEventManager.onTouchEnd.add(($_=this.parent,$bind($_,$_.onTouchEnd)));
+		lime.graphics.Renderer.onRenderContextLost.add(($_=this.parent,$bind($_,$_.onRenderContextLost)));
+		lime.graphics.Renderer.onRenderContextRestored.add(($_=this.parent,$bind($_,$_.onRenderContextRestored)));
+		lime.ui.Window.onWindowActivate.add(($_=this.parent,$bind($_,$_.onWindowActivate)));
+		lime.ui.Window.onWindowClose.add(($_=this.parent,$bind($_,$_.onWindowClose)));
+		lime.ui.Window.onWindowDeactivate.add(($_=this.parent,$bind($_,$_.onWindowDeactivate)));
+		lime.ui.Window.onWindowFocusIn.add(($_=this.parent,$bind($_,$_.onWindowFocusIn)));
+		lime.ui.Window.onWindowFocusOut.add(($_=this.parent,$bind($_,$_.onWindowFocusOut)));
+		lime.ui.Window.onWindowMove.add(($_=this.parent,$bind($_,$_.onWindowMove)));
+		lime.ui.Window.onWindowResize.add(($_=this.parent,$bind($_,$_.onWindowResize)));
+		var $window = new lime.ui.Window(config);
+		var renderer = new lime.graphics.Renderer($window);
+		$window.width = config.width;
+		$window.height = config.height;
+		$window.backend.element = config.element;
+		this.parent.addWindow($window);
+	}
+	,exec: function() {
+		
+			var lastTime = 0;
+			var vendors = ['ms', 'moz', 'webkit', 'o'];
+			for(var x = 0; x < vendors.length && !window.requestAnimationFrame; ++x) {
+				window.requestAnimationFrame = window[vendors[x]+'RequestAnimationFrame'];
+				window.cancelAnimationFrame = window[vendors[x]+'CancelAnimationFrame'] 
+										   || window[vendors[x]+'CancelRequestAnimationFrame'];
+			}
+			
+			if (!window.requestAnimationFrame)
+				window.requestAnimationFrame = function(callback, element) {
+					var currTime = new Date().getTime();
+					var timeToCall = Math.max(0, 16 - (currTime - lastTime));
+					var id = window.setTimeout(function() { callback(currTime + timeToCall); }, 
+					  timeToCall);
+					lastTime = currTime + timeToCall;
+					return id;
+				};
+			
+			if (!window.cancelAnimationFrame)
+				window.cancelAnimationFrame = function(id) {
+					clearTimeout(id);
+				};
+			
+			window.requestAnimFrame = window.requestAnimationFrame;
+		;
+		lime._backend.html5.HTML5Application.handleUpdateEvent();
+		return 0;
+	}
+	,handleKeyEvent: function(event) {
+		var _g = event.keyCode;
+		switch(_g) {
+		case 32:case 37:case 38:case 39:case 40:
+			event.preventDefault();
+			break;
+		}
+		var keyCode = this.convertKeyCode(event.keyCode != null?event.keyCode:event.which);
+		var modifier = 0;
+		if(event.type == "keydown") {
+			var listeners = lime.ui.KeyEventManager.onKeyDown.listeners;
+			var repeat = lime.ui.KeyEventManager.onKeyDown.repeat;
+			var length = listeners.length;
+			var i = 0;
+			while(i < length) {
+				listeners[i](keyCode,modifier);
+				if(!repeat[i]) {
+					lime.ui.KeyEventManager.onKeyDown.remove(listeners[i]);
+					length--;
+				} else i++;
+			}
+		} else {
+			var listeners1 = lime.ui.KeyEventManager.onKeyUp.listeners;
+			var repeat1 = lime.ui.KeyEventManager.onKeyUp.repeat;
+			var length1 = listeners1.length;
+			var i1 = 0;
+			while(i1 < length1) {
+				listeners1[i1](keyCode,modifier);
+				if(!repeat1[i1]) {
+					lime.ui.KeyEventManager.onKeyUp.remove(listeners1[i1]);
+					length1--;
+				} else i1++;
+			}
+		}
+	}
+	,__class__: lime._backend.html5.HTML5Application
+};
+lime._backend.html5.HTML5Mouse = function() { };
+$hxClasses["lime._backend.html5.HTML5Mouse"] = lime._backend.html5.HTML5Mouse;
+lime._backend.html5.HTML5Mouse.__name__ = ["lime","_backend","html5","HTML5Mouse"];
+lime._backend.html5.HTML5Mouse.__cursor = null;
+lime._backend.html5.HTML5Mouse.__hidden = null;
+lime._backend.html5.HTML5Mouse.hide = function() {
+	if(!lime._backend.html5.HTML5Mouse.__hidden) {
+		lime._backend.html5.HTML5Mouse.__hidden = true;
+		var _g = 0;
+		var _g1 = lime.app.Application.__instance.windows;
+		while(_g < _g1.length) {
+			var $window = _g1[_g];
+			++_g;
+			$window.backend.element.style.cursor = "none";
+		}
+	}
+};
+lime._backend.html5.HTML5Mouse.show = function() {
+	if(lime._backend.html5.HTML5Mouse.__hidden) {
+		lime._backend.html5.HTML5Mouse.__hidden = false;
+		var cacheValue = lime._backend.html5.HTML5Mouse.__cursor;
+		lime._backend.html5.HTML5Mouse.__cursor = null;
+		lime._backend.html5.HTML5Mouse.set_cursor(cacheValue);
+	}
+};
+lime._backend.html5.HTML5Mouse.get_cursor = function() {
+	if(lime._backend.html5.HTML5Mouse.__cursor == null) return lime.ui.MouseCursor.DEFAULT;
+	return lime._backend.html5.HTML5Mouse.__cursor;
+};
+lime._backend.html5.HTML5Mouse.set_cursor = function(value) {
+	if(lime._backend.html5.HTML5Mouse.__cursor != value) {
+		if(!lime._backend.html5.HTML5Mouse.__hidden) {
+			var _g = 0;
+			var _g1 = lime.app.Application.__instance.windows;
+			while(_g < _g1.length) {
+				var $window = _g1[_g];
+				++_g;
+				switch(value[1]) {
+				case 0:
+					$window.backend.element.style.cursor = "default";
+					break;
+				case 1:
+					$window.backend.element.style.cursor = "crosshair";
+					break;
+				case 3:
+					$window.backend.element.style.cursor = "move";
+					break;
+				case 4:
+					$window.backend.element.style.cursor = "pointer";
+					break;
+				case 5:
+					$window.backend.element.style.cursor = "nesw-resize";
+					break;
+				case 6:
+					$window.backend.element.style.cursor = "ns-resize";
+					break;
+				case 7:
+					$window.backend.element.style.cursor = "nwse-resize";
+					break;
+				case 8:
+					$window.backend.element.style.cursor = "ew-resize";
+					break;
+				case 9:
+					$window.backend.element.style.cursor = "text";
+					break;
+				case 10:
+					$window.backend.element.style.cursor = "wait";
+					break;
+				case 11:
+					$window.backend.element.style.cursor = "wait";
+					break;
+				default:
+					$window.backend.element.style.cursor = "auto";
+				}
+			}
+		}
+		lime._backend.html5.HTML5Mouse.__cursor = value;
+	}
+	return lime._backend.html5.HTML5Mouse.__cursor;
+};
+lime._backend.html5.HTML5Renderer = function(parent) {
+	this.parent = parent;
+};
+$hxClasses["lime._backend.html5.HTML5Renderer"] = lime._backend.html5.HTML5Renderer;
+lime._backend.html5.HTML5Renderer.__name__ = ["lime","_backend","html5","HTML5Renderer"];
+lime._backend.html5.HTML5Renderer.render = function() {
+	var _g = 0;
+	var _g1 = lime.app.Application.__instance.windows;
+	while(_g < _g1.length) {
+		var $window = _g1[_g];
+		++_g;
+		if($window.currentRenderer != null) $window.currentRenderer.backend.renderEvent();
+	}
+};
+lime._backend.html5.HTML5Renderer.prototype = {
+	create: function() {
+		this.createContext();
+		{
+			var _g = this.parent.context;
+			switch(_g[1]) {
+			case 0:
+				this.parent.window.backend.canvas.addEventListener("webglcontextlost",$bind(this,this.handleEvent),false);
+				this.parent.window.backend.canvas.addEventListener("webglcontextrestored",$bind(this,this.handleEvent),false);
+				break;
+			default:
+			}
+		}
+	}
+	,createContext: function() {
+		if(this.parent.window.backend.div != null) this.parent.context = lime.graphics.RenderContext.DOM(this.parent.window.backend.div); else if(this.parent.window.backend.canvas != null) {
+			var webgl = null;
+			if(webgl == null) this.parent.context = lime.graphics.RenderContext.CANVAS(this.parent.window.backend.canvas.getContext("2d")); else {
+				lime.graphics.opengl.GL.context = webgl;
+				this.parent.context = lime.graphics.RenderContext.OPENGL(lime.graphics.opengl.GL.context);
+			}
+		}
+	}
+	,flip: function() {
+	}
+	,handleEvent: function(event) {
+		var _g = event.type;
+		switch(_g) {
+		case "webglcontextlost":
+			event.preventDefault();
+			this.parent.context = null;
+			var listeners = lime.graphics.Renderer.onRenderContextLost.listeners;
+			var repeat = lime.graphics.Renderer.onRenderContextLost.repeat;
+			var length = listeners.length;
+			var i = 0;
+			while(i < length) {
+				listeners[i]();
+				if(!repeat[i]) {
+					lime.graphics.Renderer.onRenderContextLost.remove(listeners[i]);
+					length--;
+				} else i++;
+			}
+			break;
+		case "webglcontextrestored":
+			this.createContext();
+			var listeners1 = lime.graphics.Renderer.onRenderContextRestored.listeners;
+			var repeat1 = lime.graphics.Renderer.onRenderContextRestored.repeat;
+			var length1 = listeners1.length;
+			var i1 = 0;
+			while(i1 < length1) {
+				listeners1[i1](this.parent.context);
+				if(!repeat1[i1]) {
+					lime.graphics.Renderer.onRenderContextRestored.remove(listeners1[i1]);
+					length1--;
+				} else i1++;
+			}
+			break;
+		default:
+		}
+	}
+	,renderEvent: function() {
+		if(!lime.app.Application.__initialized) {
+			lime.app.Application.__initialized = true;
+			lime.app.Application.__instance.init(this.parent.context);
+		}
+		lime.app.Application.__instance.render(this.parent.context);
+		var listeners = lime.graphics.Renderer.onRender.listeners;
+		var repeat = lime.graphics.Renderer.onRender.repeat;
+		var length = listeners.length;
+		var i = 0;
+		while(i < length) {
+			listeners[i](this.parent.context);
+			if(!repeat[i]) {
+				lime.graphics.Renderer.onRender.remove(listeners[i]);
+				length--;
+			} else i++;
+		}
+		this.flip();
+	}
+	,__class__: lime._backend.html5.HTML5Renderer
+};
+lime._backend.html5.HTML5Window = function(parent) {
+	this.parent = parent;
+};
+$hxClasses["lime._backend.html5.HTML5Window"] = lime._backend.html5.HTML5Window;
+lime._backend.html5.HTML5Window.__name__ = ["lime","_backend","html5","HTML5Window"];
+lime._backend.html5.HTML5Window.prototype = {
+	create: function(application) {
+		this.setWidth = this.parent.width;
+		this.setHeight = this.parent.height;
+		if(js.Boot.__instanceof(this.element,HTMLCanvasElement)) this.canvas = this.element; else this.canvas = window.document.createElement("canvas");
+		if(this.canvas != null) {
+			var style = this.canvas.style;
+			style.setProperty("-webkit-transform","translateZ(0)",null);
+			style.setProperty("transform","translateZ(0)",null);
+		} else if(this.div != null) {
+			var style1 = this.div.style;
+			style1.setProperty("-webkit-transform","translate3D(0,0,0)",null);
+			style1.setProperty("transform","translate3D(0,0,0)",null);
+			style1.position = "relative";
+			style1.overflow = "hidden";
+			style1.setProperty("-webkit-user-select","none",null);
+			style1.setProperty("-moz-user-select","none",null);
+			style1.setProperty("-ms-user-select","none",null);
+			style1.setProperty("-o-user-select","none",null);
+		}
+		if(this.parent.width == 0 && this.parent.height == 0) {
+			if(this.element != null) {
+				this.parent.width = this.element.clientWidth;
+				this.parent.height = this.element.clientHeight;
+			} else {
+				this.parent.width = window.innerWidth;
+				this.parent.height = window.innerHeight;
+			}
+			this.parent.fullscreen = true;
+		}
+		if(this.canvas != null) {
+			this.canvas.width = this.parent.width;
+			this.canvas.height = this.parent.height;
+		} else {
+			this.div.style.width = this.parent.width + "px";
+			this.div.style.height = this.parent.height + "px";
+		}
+		this.handleResize();
+		if(this.element != null) {
+			if(this.canvas != null) {
+				if(this.element != this.canvas) this.element.appendChild(this.canvas);
+			} else this.element.appendChild(this.div);
+			var events = ["mousedown","mousemove","mouseup","wheel"];
+			var _g = 0;
+			while(_g < events.length) {
+				var event = events[_g];
+				++_g;
+				this.element.addEventListener(event,$bind(this,this.handleMouseEvent),true);
+			}
+			window.document.addEventListener("dragstart",function(e) {
+				if(e.target.nodeName.toLowerCase() == "img") {
+					e.preventDefault();
+					return false;
+				}
+				return true;
+			},false);
+			this.element.addEventListener("touchstart",$bind(this,this.handleTouchEvent),true);
+			this.element.addEventListener("touchmove",$bind(this,this.handleTouchEvent),true);
+			this.element.addEventListener("touchend",$bind(this,this.handleTouchEvent),true);
+		}
+		window.addEventListener("focus",$bind(this,this.handleEvent),false);
+		window.addEventListener("blur",$bind(this,this.handleEvent),false);
+		window.addEventListener("resize",$bind(this,this.handleEvent),false);
+		window.addEventListener("beforeunload",$bind(this,this.handleEvent),false);
+	}
+	,handleEvent: function(event) {
+		var _g = event.type;
+		switch(_g) {
+		case "focus":
+			var listeners = lime.ui.Window.onWindowFocusIn.listeners;
+			var repeat = lime.ui.Window.onWindowFocusIn.repeat;
+			var length = listeners.length;
+			var i = 0;
+			while(i < length) {
+				listeners[i]();
+				if(!repeat[i]) {
+					lime.ui.Window.onWindowFocusIn.remove(listeners[i]);
+					length--;
+				} else i++;
+			}
+			var listeners1 = lime.ui.Window.onWindowActivate.listeners;
+			var repeat1 = lime.ui.Window.onWindowActivate.repeat;
+			var length1 = listeners1.length;
+			var i1 = 0;
+			while(i1 < length1) {
+				listeners1[i1]();
+				if(!repeat1[i1]) {
+					lime.ui.Window.onWindowActivate.remove(listeners1[i1]);
+					length1--;
+				} else i1++;
+			}
+			break;
+		case "blur":
+			var listeners2 = lime.ui.Window.onWindowFocusOut.listeners;
+			var repeat2 = lime.ui.Window.onWindowFocusOut.repeat;
+			var length2 = listeners2.length;
+			var i2 = 0;
+			while(i2 < length2) {
+				listeners2[i2]();
+				if(!repeat2[i2]) {
+					lime.ui.Window.onWindowFocusOut.remove(listeners2[i2]);
+					length2--;
+				} else i2++;
+			}
+			var listeners3 = lime.ui.Window.onWindowDeactivate.listeners;
+			var repeat3 = lime.ui.Window.onWindowDeactivate.repeat;
+			var length3 = listeners3.length;
+			var i3 = 0;
+			while(i3 < length3) {
+				listeners3[i3]();
+				if(!repeat3[i3]) {
+					lime.ui.Window.onWindowDeactivate.remove(listeners3[i3]);
+					length3--;
+				} else i3++;
+			}
+			break;
+		case "resize":
+			var cacheWidth = this.parent.width;
+			var cacheHeight = this.parent.height;
+			this.handleResize();
+			if(this.parent.width != cacheWidth || this.parent.height != cacheHeight) {
+				var listeners4 = lime.ui.Window.onWindowResize.listeners;
+				var repeat4 = lime.ui.Window.onWindowResize.repeat;
+				var length4 = listeners4.length;
+				var i4 = 0;
+				while(i4 < length4) {
+					listeners4[i4](this.parent.width,this.parent.height);
+					if(!repeat4[i4]) {
+						lime.ui.Window.onWindowResize.remove(listeners4[i4]);
+						length4--;
+					} else i4++;
+				}
+			}
+			break;
+		case "beforeunload":
+			var listeners5 = lime.ui.Window.onWindowClose.listeners;
+			var repeat5 = lime.ui.Window.onWindowClose.repeat;
+			var length5 = listeners5.length;
+			var i5 = 0;
+			while(i5 < length5) {
+				listeners5[i5]();
+				if(!repeat5[i5]) {
+					lime.ui.Window.onWindowClose.remove(listeners5[i5]);
+					length5--;
+				} else i5++;
+			}
+			break;
+		}
+	}
+	,handleMouseEvent: function(event) {
+		var x = 0.0;
+		var y = 0.0;
+		if(event.type != "wheel") {
+			if(this.element != null) {
+				if(this.canvas != null) {
+					var rect = this.canvas.getBoundingClientRect();
+					x = (event.clientX - rect.left) * (this.parent.width / rect.width);
+					y = (event.clientY - rect.top) * (this.parent.height / rect.height);
+				} else if(this.div != null) {
+					var rect1 = this.div.getBoundingClientRect();
+					x = event.clientX - rect1.left;
+					y = event.clientY - rect1.top;
+				} else {
+					var rect2 = this.element.getBoundingClientRect();
+					x = (event.clientX - rect2.left) * (this.parent.width / rect2.width);
+					y = (event.clientY - rect2.top) * (this.parent.height / rect2.height);
+				}
+			} else {
+				x = event.clientX;
+				y = event.clientY;
+			}
+			var _g = event.type;
+			switch(_g) {
+			case "mousedown":
+				var listeners = lime.ui.MouseEventManager.onMouseDown.listeners;
+				var repeat = lime.ui.MouseEventManager.onMouseDown.repeat;
+				var length = listeners.length;
+				var i = 0;
+				while(i < length) {
+					listeners[i](x,y,event.button);
+					if(!repeat[i]) {
+						lime.ui.MouseEventManager.onMouseDown.remove(listeners[i]);
+						length--;
+					} else i++;
+				}
+				break;
+			case "mouseup":
+				var listeners1 = lime.ui.MouseEventManager.onMouseUp.listeners;
+				var repeat1 = lime.ui.MouseEventManager.onMouseUp.repeat;
+				var length1 = listeners1.length;
+				var i1 = 0;
+				while(i1 < length1) {
+					listeners1[i1](x,y,event.button);
+					if(!repeat1[i1]) {
+						lime.ui.MouseEventManager.onMouseUp.remove(listeners1[i1]);
+						length1--;
+					} else i1++;
+				}
+				break;
+			case "mousemove":
+				var listeners2 = lime.ui.MouseEventManager.onMouseMove.listeners;
+				var repeat2 = lime.ui.MouseEventManager.onMouseMove.repeat;
+				var length2 = listeners2.length;
+				var i2 = 0;
+				while(i2 < length2) {
+					listeners2[i2](x,y,event.button);
+					if(!repeat2[i2]) {
+						lime.ui.MouseEventManager.onMouseMove.remove(listeners2[i2]);
+						length2--;
+					} else i2++;
+				}
+				break;
+			default:
+			}
+		} else {
+			var listeners3 = lime.ui.MouseEventManager.onMouseWheel.listeners;
+			var repeat3 = lime.ui.MouseEventManager.onMouseWheel.repeat;
+			var length3 = listeners3.length;
+			var i3 = 0;
+			while(i3 < length3) {
+				listeners3[i3](event.deltaX,event.deltaY);
+				if(!repeat3[i3]) {
+					lime.ui.MouseEventManager.onMouseWheel.remove(listeners3[i3]);
+					length3--;
+				} else i3++;
+			}
+		}
+	}
+	,handleResize: function() {
+		var stretch = this.parent.fullscreen || this.setWidth == 0 && this.setHeight == 0;
+		if(this.element != null && (this.div == null || this.div != null && stretch)) {
+			if(stretch) {
+				if(this.parent.width != this.element.clientWidth || this.parent.height != this.element.clientHeight) {
+					this.parent.width = this.element.clientWidth;
+					this.parent.height = this.element.clientHeight;
+					if(this.canvas != null) {
+						if(this.element != this.canvas) {
+							this.canvas.width = this.element.clientWidth;
+							this.canvas.height = this.element.clientHeight;
+						}
+					} else {
+						this.div.style.width = this.element.clientWidth + "px";
+						this.div.style.height = this.element.clientHeight + "px";
+					}
+				}
+			} else {
+				var scaleX = this.element.clientWidth / this.setWidth;
+				var scaleY = this.element.clientHeight / this.setHeight;
+				var currentRatio = scaleX / scaleY;
+				var targetRatio = Math.min(scaleX,scaleY);
+				if(this.canvas != null) {
+					if(this.element != this.canvas) {
+						this.canvas.style.width = this.setWidth * targetRatio + "px";
+						this.canvas.style.height = this.setHeight * targetRatio + "px";
+						this.canvas.style.marginLeft = (this.element.clientWidth - this.setWidth * targetRatio) / 2 + "px";
+						this.canvas.style.marginTop = (this.element.clientHeight - this.setHeight * targetRatio) / 2 + "px";
+					}
+				} else {
+					this.div.style.width = this.setWidth * targetRatio + "px";
+					this.div.style.height = this.setHeight * targetRatio + "px";
+					this.div.style.marginLeft = (this.element.clientWidth - this.setWidth * targetRatio) / 2 + "px";
+					this.div.style.marginTop = (this.element.clientHeight - this.setHeight * targetRatio) / 2 + "px";
+				}
+			}
+		}
+	}
+	,handleTouchEvent: function(event) {
+		event.preventDefault();
+		var touch = event.changedTouches[0];
+		var id = touch.identifier;
+		var x = 0.0;
+		var y = 0.0;
+		if(this.element != null) {
+			if(this.canvas != null) {
+				var rect = this.canvas.getBoundingClientRect();
+				x = (touch.clientX - rect.left) * (this.parent.width / rect.width);
+				y = (touch.clientY - rect.top) * (this.parent.height / rect.height);
+			} else if(this.div != null) {
+				var rect1 = this.div.getBoundingClientRect();
+				x = touch.clientX - rect1.left;
+				y = touch.clientY - rect1.top;
+			} else {
+				var rect2 = this.element.getBoundingClientRect();
+				x = (touch.clientX - rect2.left) * (this.parent.width / rect2.width);
+				y = (touch.clientY - rect2.top) * (this.parent.height / rect2.height);
+			}
+		} else {
+			x = touch.clientX;
+			y = touch.clientY;
+		}
+		var _g = event.type;
+		switch(_g) {
+		case "touchstart":
+			var listeners = lime.ui.TouchEventManager.onTouchStart.listeners;
+			var repeat = lime.ui.TouchEventManager.onTouchStart.repeat;
+			var length = listeners.length;
+			var i = 0;
+			while(i < length) {
+				listeners[i](x,y,id);
+				if(!repeat[i]) {
+					lime.ui.TouchEventManager.onTouchStart.remove(listeners[i]);
+					length--;
+				} else i++;
+			}
+			break;
+		case "touchmove":
+			var listeners1 = lime.ui.TouchEventManager.onTouchMove.listeners;
+			var repeat1 = lime.ui.TouchEventManager.onTouchMove.repeat;
+			var length1 = listeners1.length;
+			var i1 = 0;
+			while(i1 < length1) {
+				listeners1[i1](x,y,id);
+				if(!repeat1[i1]) {
+					lime.ui.TouchEventManager.onTouchMove.remove(listeners1[i1]);
+					length1--;
+				} else i1++;
+			}
+			break;
+		case "touchend":
+			var listeners2 = lime.ui.TouchEventManager.onTouchEnd.listeners;
+			var repeat2 = lime.ui.TouchEventManager.onTouchEnd.repeat;
+			var length2 = listeners2.length;
+			var i2 = 0;
+			while(i2 < length2) {
+				listeners2[i2](x,y,id);
+				if(!repeat2[i2]) {
+					lime.ui.TouchEventManager.onTouchEnd.remove(listeners2[i2]);
+					length2--;
+				} else i2++;
+			}
+			break;
+		default:
+		}
+	}
+	,move: function(x,y) {
+	}
+	,resize: function(width,height) {
+	}
+	,setIcon: function(image) {
+	}
+	,__class__: lime._backend.html5.HTML5Window
+};
 lime.app = {};
 lime.app.Module = function() {
 };
@@ -11235,20 +11579,6 @@ $hxClasses["lime.app.Module"] = lime.app.Module;
 lime.app.Module.__name__ = ["lime","app","Module"];
 lime.app.Module.prototype = {
 	__class__: lime.app.Module
-};
-lime.app._Application = {};
-lime.app._Application.UpdateEventInfo = function(type,deltaTime) {
-	if(deltaTime == null) deltaTime = 0;
-	this.type = type;
-	this.deltaTime = deltaTime;
-};
-$hxClasses["lime.app._Application.UpdateEventInfo"] = lime.app._Application.UpdateEventInfo;
-lime.app._Application.UpdateEventInfo.__name__ = ["lime","app","_Application","UpdateEventInfo"];
-lime.app._Application.UpdateEventInfo.prototype = {
-	clone: function() {
-		return new lime.app._Application.UpdateEventInfo(this.type,this.deltaTime);
-	}
-	,__class__: lime.app._Application.UpdateEventInfo
 };
 lime.app.Event = function() {
 	this.listeners = new Array();
@@ -11288,32 +11618,13 @@ lime.app.Event.prototype = {
 };
 lime.app.Application = function() {
 	lime.app.Module.call(this);
-	lime.app.Application.__instance = this;
 	this.windows = new Array();
-	if(!lime.app.Application.__registered) {
-		lime.app.Application.__registered = true;
-		lime.audio.AudioManager.init();
-	}
+	this.backend = new lime._backend.html5.HTML5Application(this);
 };
 $hxClasses["lime.app.Application"] = lime.app.Application;
 lime.app.Application.__name__ = ["lime","app","Application"];
 lime.app.Application.__initialized = null;
 lime.app.Application.__instance = null;
-lime.app.Application.__registered = null;
-lime.app.Application.__dispatch = function() {
-	lime.app.Application.__instance.update(lime.app.Application.__eventInfo.deltaTime);
-	var listeners = lime.app.Application.onUpdate.listeners;
-	var repeat = lime.app.Application.onUpdate.repeat;
-	var length = listeners.length;
-	var i = 0;
-	while(i < length) {
-		listeners[i](lime.app.Application.__eventInfo.deltaTime);
-		if(!repeat[i]) {
-			lime.app.Application.onUpdate.remove(listeners[i]);
-			length--;
-		} else i++;
-	}
-};
 lime.app.Application.__super__ = lime.app.Module;
 lime.app.Application.prototype = $extend(lime.app.Module.prototype,{
 	addWindow: function(window) {
@@ -11321,64 +11632,10 @@ lime.app.Application.prototype = $extend(lime.app.Module.prototype,{
 		window.create(this);
 	}
 	,create: function(config) {
-		this.config = config;
-		lime.ui.KeyEventManager.create();
-		lime.ui.MouseEventManager.create();
-		lime.ui.TouchEventManager.create();
-		lime.ui.KeyEventManager.onKeyDown.add($bind(this,this.onKeyDown));
-		lime.ui.KeyEventManager.onKeyUp.add($bind(this,this.onKeyUp));
-		lime.ui.MouseEventManager.onMouseDown.add($bind(this,this.onMouseDown));
-		lime.ui.MouseEventManager.onMouseMove.add($bind(this,this.onMouseMove));
-		lime.ui.MouseEventManager.onMouseUp.add($bind(this,this.onMouseUp));
-		lime.ui.MouseEventManager.onMouseWheel.add($bind(this,this.onMouseWheel));
-		lime.ui.TouchEventManager.onTouchStart.add($bind(this,this.onTouchStart));
-		lime.ui.TouchEventManager.onTouchMove.add($bind(this,this.onTouchMove));
-		lime.ui.TouchEventManager.onTouchEnd.add($bind(this,this.onTouchEnd));
-		lime.graphics.Renderer.onRenderContextLost.add($bind(this,this.onRenderContextLost));
-		lime.graphics.Renderer.onRenderContextRestored.add($bind(this,this.onRenderContextRestored));
-		lime.ui.Window.onWindowActivate.add($bind(this,this.onWindowActivate));
-		lime.ui.Window.onWindowClose.add($bind(this,this.onWindowClose));
-		lime.ui.Window.onWindowDeactivate.add($bind(this,this.onWindowDeactivate));
-		lime.ui.Window.onWindowFocusIn.add($bind(this,this.onWindowFocusIn));
-		lime.ui.Window.onWindowFocusOut.add($bind(this,this.onWindowFocusOut));
-		lime.ui.Window.onWindowMove.add($bind(this,this.onWindowMove));
-		lime.ui.Window.onWindowResize.add($bind(this,this.onWindowResize));
-		var $window = new lime.ui.Window(config);
-		var renderer = new lime.graphics.Renderer($window);
-		$window.width = config.width;
-		$window.height = config.height;
-		$window.element = config.element;
-		this.addWindow($window);
+		this.backend.create(config);
 	}
 	,exec: function() {
-		
-				var lastTime = 0;
-				var vendors = ['ms', 'moz', 'webkit', 'o'];
-				for(var x = 0; x < vendors.length && !window.requestAnimationFrame; ++x) {
-					window.requestAnimationFrame = window[vendors[x]+'RequestAnimationFrame'];
-					window.cancelAnimationFrame = window[vendors[x]+'CancelAnimationFrame'] 
-											   || window[vendors[x]+'CancelRequestAnimationFrame'];
-				}
-				
-				if (!window.requestAnimationFrame)
-					window.requestAnimationFrame = function(callback, element) {
-						var currTime = new Date().getTime();
-						var timeToCall = Math.max(0, 16 - (currTime - lastTime));
-						var id = window.setTimeout(function() { callback(currTime + timeToCall); }, 
-						  timeToCall);
-						lastTime = currTime + timeToCall;
-						return id;
-					};
-				
-				if (!window.cancelAnimationFrame)
-					window.cancelAnimationFrame = function(id) {
-						clearTimeout(id);
-					};
-				
-				window.requestAnimFrame = window.requestAnimationFrame;
-			;
-		this.__triggerFrame();
-		return 0;
+		return this.backend.exec();
 	}
 	,init: function(context) {
 	}
@@ -11421,14 +11678,6 @@ lime.app.Application.prototype = $extend(lime.app.Module.prototype,{
 	,render: function(context) {
 	}
 	,update: function(deltaTime) {
-	}
-	,__cleanup: function() {
-	}
-	,__triggerFrame: function(__) {
-		lime.app.Application.__eventInfo.deltaTime = 16;
-		lime.app.Application.__dispatch();
-		lime.graphics.Renderer.render();
-		window.requestAnimationFrame($bind(this,this.__triggerFrame));
 	}
 	,get_window: function() {
 		return this.windows[0];
@@ -11957,12 +12206,14 @@ $hxClasses["lime.audio.AudioManager"] = lime.audio.AudioManager;
 lime.audio.AudioManager.__name__ = ["lime","audio","AudioManager"];
 lime.audio.AudioManager.context = null;
 lime.audio.AudioManager.init = function(context) {
-	if(context == null) try {
-		window.AudioContext = window.AudioContext || window.webkitAudioContext;;
-		lime.audio.AudioManager.context = lime.audio.AudioContext.WEB(new AudioContext ());
-	} catch( e ) {
-		lime.audio.AudioManager.context = lime.audio.AudioContext.HTML5(new lime.audio.HTML5AudioContext());
-	} else lime.audio.AudioManager.context = context;
+	if(lime.audio.AudioManager.context == null) {
+		if(context == null) try {
+			window.AudioContext = window.AudioContext || window.webkitAudioContext;;
+			lime.audio.AudioManager.context = lime.audio.AudioContext.WEB(new AudioContext ());
+		} catch( e ) {
+			lime.audio.AudioManager.context = lime.audio.AudioContext.HTML5(new lime.audio.HTML5AudioContext());
+		} else lime.audio.AudioManager.context = context;
+	}
 };
 lime.audio.AudioManager.resume = function() {
 	if(lime.audio.AudioManager.context != null) {
@@ -12026,7 +12277,12 @@ lime.audio.AudioSource.prototype = {
 			case 0:
 				var al = _g[3];
 				var alc = _g[2];
-				if(this.buffer.id == 0) {
+				if((function($this) {
+					var $r;
+					var $int = $this.buffer.id;
+					$r = $int < 0?4294967296.0 + $int:$int + 0.0;
+					return $r;
+				}(this)) == 0) {
 					this.buffer.id = al.genBuffer();
 					var format = 0;
 					if(this.buffer.channels == 1) {
@@ -12577,6 +12833,21 @@ lime.audio.openal._ALDevice.ALDevice_Impl_._new = function(handle) {
 	return handle;
 };
 lime.graphics = {};
+lime.graphics.ConsoleRenderContext = function() {
+};
+$hxClasses["lime.graphics.ConsoleRenderContext"] = lime.graphics.ConsoleRenderContext;
+lime.graphics.ConsoleRenderContext.__name__ = ["lime","graphics","ConsoleRenderContext"];
+lime.graphics.ConsoleRenderContext.prototype = {
+	clear: function() {
+	}
+	,clearColor: function(r,g,b,a) {
+	}
+	,clearDepth: function(depth) {
+	}
+	,clearStencil: function(stencil) {
+	}
+	,__class__: lime.graphics.ConsoleRenderContext
+};
 lime.graphics.FlashRenderContext = function() {
 };
 $hxClasses["lime.graphics.FlashRenderContext"] = lime.graphics.FlashRenderContext;
@@ -13327,136 +13598,29 @@ lime.graphics.ImageType.FLASH.__enum__ = lime.graphics.ImageType;
 lime.graphics.ImageType.CUSTOM = ["CUSTOM",3];
 lime.graphics.ImageType.CUSTOM.toString = $estr;
 lime.graphics.ImageType.CUSTOM.__enum__ = lime.graphics.ImageType;
-lime.graphics.RenderContext = $hxClasses["lime.graphics.RenderContext"] = { __ename__ : true, __constructs__ : ["OPENGL","CANVAS","DOM","FLASH","CUSTOM"] };
+lime.graphics.RenderContext = $hxClasses["lime.graphics.RenderContext"] = { __ename__ : true, __constructs__ : ["OPENGL","CANVAS","DOM","FLASH","CONSOLE","CUSTOM"] };
 lime.graphics.RenderContext.OPENGL = function(gl) { var $x = ["OPENGL",0,gl]; $x.__enum__ = lime.graphics.RenderContext; $x.toString = $estr; return $x; };
 lime.graphics.RenderContext.CANVAS = function(context) { var $x = ["CANVAS",1,context]; $x.__enum__ = lime.graphics.RenderContext; $x.toString = $estr; return $x; };
 lime.graphics.RenderContext.DOM = function(element) { var $x = ["DOM",2,element]; $x.__enum__ = lime.graphics.RenderContext; $x.toString = $estr; return $x; };
 lime.graphics.RenderContext.FLASH = function(stage) { var $x = ["FLASH",3,stage]; $x.__enum__ = lime.graphics.RenderContext; $x.toString = $estr; return $x; };
-lime.graphics.RenderContext.CUSTOM = function(data) { var $x = ["CUSTOM",4,data]; $x.__enum__ = lime.graphics.RenderContext; $x.toString = $estr; return $x; };
-lime.graphics._Renderer = {};
-lime.graphics._Renderer.RenderEventInfo = function(type,context) {
-	this.type = type;
-	this.context = context;
-};
-$hxClasses["lime.graphics._Renderer.RenderEventInfo"] = lime.graphics._Renderer.RenderEventInfo;
-lime.graphics._Renderer.RenderEventInfo.__name__ = ["lime","graphics","_Renderer","RenderEventInfo"];
-lime.graphics._Renderer.RenderEventInfo.prototype = {
-	clone: function() {
-		return new lime.graphics._Renderer.RenderEventInfo(this.type,this.context);
-	}
-	,__class__: lime.graphics._Renderer.RenderEventInfo
-};
+lime.graphics.RenderContext.CONSOLE = function(context) { var $x = ["CONSOLE",4,context]; $x.__enum__ = lime.graphics.RenderContext; $x.toString = $estr; return $x; };
+lime.graphics.RenderContext.CUSTOM = function(data) { var $x = ["CUSTOM",5,data]; $x.__enum__ = lime.graphics.RenderContext; $x.toString = $estr; return $x; };
 lime.graphics.Renderer = function(window) {
 	this.window = window;
+	this.backend = new lime._backend.html5.HTML5Renderer(this);
 	this.window.currentRenderer = this;
 };
 $hxClasses["lime.graphics.Renderer"] = lime.graphics.Renderer;
 lime.graphics.Renderer.__name__ = ["lime","graphics","Renderer"];
-lime.graphics.Renderer.registered = null;
 lime.graphics.Renderer.render = function() {
-	lime.graphics.Renderer.eventInfo.type = 0;
-	var _g = 0;
-	var _g1 = lime.app.Application.__instance.windows;
-	while(_g < _g1.length) {
-		var $window = _g1[_g];
-		++_g;
-		if($window.currentRenderer != null) $window.currentRenderer.dispatch();
-	}
+	lime._backend.html5.HTML5Renderer.render();
 };
 lime.graphics.Renderer.prototype = {
 	create: function() {
-		this.createContext();
-		{
-			var _g = this.context;
-			switch(_g[1]) {
-			case 0:
-				this.window.canvas.addEventListener("webglcontextlost",$bind(this,this.handleCanvasEvent),false);
-				this.window.canvas.addEventListener("webglcontextrestored",$bind(this,this.handleCanvasEvent),false);
-				break;
-			default:
-			}
-		}
-		if(!lime.graphics.Renderer.registered) lime.graphics.Renderer.registered = true;
-	}
-	,createContext: function() {
-		if(this.window.div != null) this.context = lime.graphics.RenderContext.DOM(this.window.div); else if(this.window.canvas != null) {
-			var webgl = null;
-			if(webgl == null) this.context = lime.graphics.RenderContext.CANVAS(this.window.canvas.getContext("2d")); else {
-				webgl = WebGLDebugUtils.makeDebugContext(webgl);
-				lime.graphics.opengl.GL.context = webgl;
-				this.context = lime.graphics.RenderContext.OPENGL(lime.graphics.opengl.GL.context);
-			}
-		}
-	}
-	,dispatch: function() {
-		var _g = lime.graphics.Renderer.eventInfo.type;
-		switch(_g) {
-		case 0:
-			if(!lime.app.Application.__initialized) {
-				lime.app.Application.__initialized = true;
-				lime.app.Application.__instance.init(this.context);
-			}
-			lime.app.Application.__instance.render(this.context);
-			var listeners = lime.graphics.Renderer.onRender.listeners;
-			var repeat = lime.graphics.Renderer.onRender.repeat;
-			var length = listeners.length;
-			var i = 0;
-			while(i < length) {
-				listeners[i](this.context);
-				if(!repeat[i]) {
-					lime.graphics.Renderer.onRender.remove(listeners[i]);
-					length--;
-				} else i++;
-			}
-			this.flip();
-			break;
-		case 1:
-			this.context = null;
-			var listeners1 = lime.graphics.Renderer.onRenderContextLost.listeners;
-			var repeat1 = lime.graphics.Renderer.onRenderContextLost.repeat;
-			var length1 = listeners1.length;
-			var i1 = 0;
-			while(i1 < length1) {
-				listeners1[i1]();
-				if(!repeat1[i1]) {
-					lime.graphics.Renderer.onRenderContextLost.remove(listeners1[i1]);
-					length1--;
-				} else i1++;
-			}
-			break;
-		case 2:
-			this.createContext();
-			var listeners2 = lime.graphics.Renderer.onRenderContextRestored.listeners;
-			var repeat2 = lime.graphics.Renderer.onRenderContextRestored.repeat;
-			var length2 = listeners2.length;
-			var i2 = 0;
-			while(i2 < length2) {
-				listeners2[i2](this.context);
-				if(!repeat2[i2]) {
-					lime.graphics.Renderer.onRenderContextRestored.remove(listeners2[i2]);
-					length2--;
-				} else i2++;
-			}
-			break;
-		}
+		this.backend.create();
 	}
 	,flip: function() {
-	}
-	,handleCanvasEvent: function(event) {
-		var _g = event.type;
-		switch(_g) {
-		case "webglcontextlost":
-			event.preventDefault();
-			lime.graphics.Renderer.eventInfo.type = 1;
-			this.dispatch();
-			break;
-		case "webglcontextrestored":
-			this.createContext();
-			lime.graphics.Renderer.eventInfo.type = 2;
-			this.dispatch();
-			break;
-		default:
-		}
+		this.backend.flip();
 	}
 	,__class__: lime.graphics.Renderer
 };
@@ -16184,6 +16348,10 @@ lime.net.URLRequestHeader.__name__ = ["lime","net","URLRequestHeader"];
 lime.net.URLRequestHeader.prototype = {
 	__class__: lime.net.URLRequestHeader
 };
+lime.net._URLRequestMethod = {};
+lime.net._URLRequestMethod.URLRequestMethod_Impl_ = function() { };
+$hxClasses["lime.net._URLRequestMethod.URLRequestMethod_Impl_"] = lime.net._URLRequestMethod.URLRequestMethod_Impl_;
+lime.net._URLRequestMethod.URLRequestMethod_Impl_.__name__ = ["lime","net","_URLRequestMethod","URLRequestMethod_Impl_"];
 lime.net.URLVariables = function(inEncoded) {
 	if(inEncoded != null) this.decode(inEncoded);
 };
@@ -16242,6 +16410,10 @@ lime.net.curl._CURL.CURL_Impl_.versionInfo = function(type) {
 lime.net.curl._CURL.CURL_Impl_.intGt = function(a,b) {
 	return a > b;
 };
+lime.net.curl._CURLCode = {};
+lime.net.curl._CURLCode.CURLCode_Impl_ = function() { };
+$hxClasses["lime.net.curl._CURLCode.CURLCode_Impl_"] = lime.net.curl._CURLCode.CURLCode_Impl_;
+lime.net.curl._CURLCode.CURLCode_Impl_.__name__ = ["lime","net","curl","_CURLCode","CURLCode_Impl_"];
 lime.net.curl.CURLEasy = function() { };
 $hxClasses["lime.net.curl.CURLEasy"] = lime.net.curl.CURLEasy;
 lime.net.curl.CURLEasy.__name__ = ["lime","net","curl","CURLEasy"];
@@ -16277,6 +16449,18 @@ lime.net.curl.CURLEasy.strerror = function(code) {
 lime.net.curl.CURLEasy.unescape = function(handle,url,inLength,outLength) {
 	return null;
 };
+lime.net.curl._CURLInfo = {};
+lime.net.curl._CURLInfo.CURLInfo_Impl_ = function() { };
+$hxClasses["lime.net.curl._CURLInfo.CURLInfo_Impl_"] = lime.net.curl._CURLInfo.CURLInfo_Impl_;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.__name__ = ["lime","net","curl","_CURLInfo","CURLInfo_Impl_"];
+lime.net.curl._CURLOption = {};
+lime.net.curl._CURLOption.CURLOption_Impl_ = function() { };
+$hxClasses["lime.net.curl._CURLOption.CURLOption_Impl_"] = lime.net.curl._CURLOption.CURLOption_Impl_;
+lime.net.curl._CURLOption.CURLOption_Impl_.__name__ = ["lime","net","curl","_CURLOption","CURLOption_Impl_"];
+lime.net.curl._CURLVersion = {};
+lime.net.curl._CURLVersion.CURLVersion_Impl_ = function() { };
+$hxClasses["lime.net.curl._CURLVersion.CURLVersion_Impl_"] = lime.net.curl._CURLVersion.CURLVersion_Impl_;
+lime.net.curl._CURLVersion.CURLVersion_Impl_.__name__ = ["lime","net","curl","_CURLVersion","CURLVersion_Impl_"];
 lime.system = {};
 lime.system.System = function() { };
 $hxClasses["lime.system.System"] = lime.system.System;
@@ -16321,211 +16505,27 @@ lime.system.System.tryLoad = function(name,library,func,args) {
 lime.system.System.loaderTrace = function(message) {
 };
 lime.ui = {};
+lime.ui._KeyCode = {};
+lime.ui._KeyCode.KeyCode_Impl_ = function() { };
+$hxClasses["lime.ui._KeyCode.KeyCode_Impl_"] = lime.ui._KeyCode.KeyCode_Impl_;
+lime.ui._KeyCode.KeyCode_Impl_.__name__ = ["lime","ui","_KeyCode","KeyCode_Impl_"];
 lime.ui.KeyEventManager = function() { };
 $hxClasses["lime.ui.KeyEventManager"] = lime.ui.KeyEventManager;
 lime.ui.KeyEventManager.__name__ = ["lime","ui","KeyEventManager"];
-lime.ui.KeyEventManager.eventInfo = null;
-lime.ui.KeyEventManager.create = function() {
-	lime.ui.KeyEventManager.eventInfo = new lime.ui._KeyEventManager.KeyEventInfo();
-	window.addEventListener("keydown",lime.ui.KeyEventManager.handleEvent,false);
-	window.addEventListener("keyup",lime.ui.KeyEventManager.handleEvent,false);
-};
-lime.ui.KeyEventManager.convertKeyCode = function(keyCode) {
-	if(keyCode >= 65 && keyCode <= 90) return keyCode + 32;
-	switch(keyCode) {
-	case 16:
-		return 1073742049;
-	case 17:
-		return 1073742048;
-	case 18:
-		return 1073742050;
-	case 20:
-		return 1073741881;
-	case 144:
-		return 1073741907;
-	case 37:
-		return 1073741904;
-	case 38:
-		return 1073741906;
-	case 39:
-		return 1073741903;
-	case 40:
-		return 1073741905;
-	case 45:
-		return 1073741897;
-	case 46:
-		return 127;
-	case 36:
-		return 1073741898;
-	case 35:
-		return 1073741901;
-	case 33:
-		return 1073741899;
-	case 34:
-		return 1073741902;
-	case 112:
-		return 1073741882;
-	case 113:
-		return 1073741883;
-	case 114:
-		return 1073741884;
-	case 115:
-		return 1073741885;
-	case 116:
-		return 1073741886;
-	case 117:
-		return 1073741887;
-	case 118:
-		return 1073741888;
-	case 119:
-		return 1073741889;
-	case 120:
-		return 1073741890;
-	case 121:
-		return 1073741891;
-	case 122:
-		return 1073741892;
-	case 123:
-		return 1073741893;
-	}
-	return keyCode;
-};
-lime.ui.KeyEventManager.handleEvent = function(event) {
-	var _g = event.keyCode;
-	switch(_g) {
-	case 32:case 37:case 38:case 39:case 40:
-		event.preventDefault();
-		break;
-	}
-	lime.ui.KeyEventManager.eventInfo.keyCode = lime.ui.KeyEventManager.convertKeyCode(event.keyCode != null?event.keyCode:event.which);
-	if(event.type == "keydown") lime.ui.KeyEventManager.eventInfo.type = 0; else lime.ui.KeyEventManager.eventInfo.type = 1;
-	var _g1 = lime.ui.KeyEventManager.eventInfo.type;
-	switch(_g1) {
-	case 0:
-		var listeners = lime.ui.KeyEventManager.onKeyDown.listeners;
-		var repeat = lime.ui.KeyEventManager.onKeyDown.repeat;
-		var length = listeners.length;
-		var i = 0;
-		while(i < length) {
-			listeners[i](lime.ui.KeyEventManager.eventInfo.keyCode,lime.ui.KeyEventManager.eventInfo.modifier);
-			if(!repeat[i]) {
-				lime.ui.KeyEventManager.onKeyDown.remove(listeners[i]);
-				length--;
-			} else i++;
-		}
-		break;
-	case 1:
-		var listeners1 = lime.ui.KeyEventManager.onKeyUp.listeners;
-		var repeat1 = lime.ui.KeyEventManager.onKeyUp.repeat;
-		var length1 = listeners1.length;
-		var i1 = 0;
-		while(i1 < length1) {
-			listeners1[i1](lime.ui.KeyEventManager.eventInfo.keyCode,lime.ui.KeyEventManager.eventInfo.modifier);
-			if(!repeat1[i1]) {
-				lime.ui.KeyEventManager.onKeyUp.remove(listeners1[i1]);
-				length1--;
-			} else i1++;
-		}
-		break;
-	}
-};
-lime.ui.KeyEventManager.registerWindow = function(_window) {
-};
-lime.ui._KeyEventManager = {};
-lime.ui._KeyEventManager.KeyEventInfo = function(type,keyCode,modifier) {
-	if(modifier == null) modifier = 0;
-	if(keyCode == null) keyCode = 0;
-	this.type = type;
-	this.keyCode = keyCode;
-	this.modifier = modifier;
-};
-$hxClasses["lime.ui._KeyEventManager.KeyEventInfo"] = lime.ui._KeyEventManager.KeyEventInfo;
-lime.ui._KeyEventManager.KeyEventInfo.__name__ = ["lime","ui","_KeyEventManager","KeyEventInfo"];
-lime.ui._KeyEventManager.KeyEventInfo.prototype = {
-	clone: function() {
-		return new lime.ui._KeyEventManager.KeyEventInfo(this.type,this.keyCode,this.modifier);
-	}
-	,__class__: lime.ui._KeyEventManager.KeyEventInfo
-};
 lime.ui.Mouse = function() { };
 $hxClasses["lime.ui.Mouse"] = lime.ui.Mouse;
 lime.ui.Mouse.__name__ = ["lime","ui","Mouse"];
-lime.ui.Mouse.__cursor = null;
-lime.ui.Mouse.__hidden = null;
 lime.ui.Mouse.hide = function() {
-	if(!lime.ui.Mouse.__hidden) {
-		lime.ui.Mouse.__hidden = true;
-		var _g = 0;
-		var _g1 = lime.app.Application.__instance.windows;
-		while(_g < _g1.length) {
-			var $window = _g1[_g];
-			++_g;
-			$window.element.style.cursor = "none";
-		}
-	}
+	lime._backend.html5.HTML5Mouse.hide();
 };
 lime.ui.Mouse.show = function() {
-	if(lime.ui.Mouse.__hidden) {
-		lime.ui.Mouse.__hidden = false;
-		var cacheValue = lime.ui.Mouse.__cursor;
-		lime.ui.Mouse.__cursor = null;
-		lime.ui.Mouse.set_cursor(cacheValue);
-	}
+	lime._backend.html5.HTML5Mouse.show();
 };
 lime.ui.Mouse.get_cursor = function() {
-	if(lime.ui.Mouse.__cursor == null) return lime.ui.MouseCursor.DEFAULT;
-	return lime.ui.Mouse.__cursor;
+	return lime._backend.html5.HTML5Mouse.get_cursor();
 };
 lime.ui.Mouse.set_cursor = function(value) {
-	if(lime.ui.Mouse.__cursor != value) {
-		if(!lime.ui.Mouse.__hidden) {
-			var _g = 0;
-			var _g1 = lime.app.Application.__instance.windows;
-			while(_g < _g1.length) {
-				var $window = _g1[_g];
-				++_g;
-				switch(value[1]) {
-				case 0:
-					$window.element.style.cursor = "default";
-					break;
-				case 1:
-					$window.element.style.cursor = "crosshair";
-					break;
-				case 3:
-					$window.element.style.cursor = "move";
-					break;
-				case 4:
-					$window.element.style.cursor = "pointer";
-					break;
-				case 5:
-					$window.element.style.cursor = "nesw-resize";
-					break;
-				case 6:
-					$window.element.style.cursor = "ns-resize";
-					break;
-				case 7:
-					$window.element.style.cursor = "nwse-resize";
-					break;
-				case 8:
-					$window.element.style.cursor = "ew-resize";
-					break;
-				case 9:
-					$window.element.style.cursor = "text";
-					break;
-				case 10:
-					$window.element.style.cursor = "wait";
-					break;
-				case 11:
-					$window.element.style.cursor = "wait";
-					break;
-				default:
-					$window.element.style.cursor = "auto";
-				}
-			}
-		}
-		lime.ui.Mouse.__cursor = value;
-	}
-	return lime.ui.Mouse.__cursor;
+	return lime._backend.html5.HTML5Mouse.set_cursor(value);
 };
 lime.ui.MouseCursor = $hxClasses["lime.ui.MouseCursor"] = { __ename__ : true, __constructs__ : ["ARROW","CROSSHAIR","DEFAULT","MOVE","POINTER","RESIZE_NESW","RESIZE_NS","RESIZE_NWSE","RESIZE_WE","TEXT","WAIT","WAIT_ARROW","CUSTOM"] };
 lime.ui.MouseCursor.ARROW = ["ARROW",0];
@@ -16570,513 +16570,33 @@ lime.ui.MouseCursor.CUSTOM.__enum__ = lime.ui.MouseCursor;
 lime.ui.MouseEventManager = function() { };
 $hxClasses["lime.ui.MouseEventManager"] = lime.ui.MouseEventManager;
 lime.ui.MouseEventManager.__name__ = ["lime","ui","MouseEventManager"];
-lime.ui.MouseEventManager.created = null;
-lime.ui.MouseEventManager.eventInfo = null;
-lime.ui.MouseEventManager.window = null;
-lime.ui.MouseEventManager.create = function() {
-	lime.ui.MouseEventManager.eventInfo = new lime.ui._MouseEventManager.MouseEventInfo();
-};
-lime.ui.MouseEventManager.handleEvent = function(event) {
-	var _g = event.type;
-	switch(_g) {
-	case "mousedown":
-		lime.ui.MouseEventManager.eventInfo.type = 0;
-		break;
-	case "mouseup":
-		lime.ui.MouseEventManager.eventInfo.type = 1;
-		break;
-	case "mousemove":
-		lime.ui.MouseEventManager.eventInfo.type = 2;
-		break;
-	case "wheel":
-		lime.ui.MouseEventManager.eventInfo.type = 3;
-		break;
-	default:
-		lime.ui.MouseEventManager.eventInfo.type = null;
-	}
-	if(lime.ui.MouseEventManager.eventInfo.type != 3) {
-		if(lime.ui.MouseEventManager.window != null && lime.ui.MouseEventManager.window.element != null) {
-			if(lime.ui.MouseEventManager.window.canvas != null) {
-				var rect = lime.ui.MouseEventManager.window.canvas.getBoundingClientRect();
-				lime.ui.MouseEventManager.eventInfo.x = (event.clientX - rect.left) * (lime.ui.MouseEventManager.window.width / rect.width);
-				lime.ui.MouseEventManager.eventInfo.y = (event.clientY - rect.top) * (lime.ui.MouseEventManager.window.height / rect.height);
-			} else if(lime.ui.MouseEventManager.window.div != null) {
-				var rect1 = lime.ui.MouseEventManager.window.div.getBoundingClientRect();
-				lime.ui.MouseEventManager.eventInfo.x = event.clientX - rect1.left;
-				lime.ui.MouseEventManager.eventInfo.y = event.clientY - rect1.top;
-			} else {
-				var rect2 = lime.ui.MouseEventManager.window.element.getBoundingClientRect();
-				lime.ui.MouseEventManager.eventInfo.x = (event.clientX - rect2.left) * (lime.ui.MouseEventManager.window.width / rect2.width);
-				lime.ui.MouseEventManager.eventInfo.y = (event.clientY - rect2.top) * (lime.ui.MouseEventManager.window.height / rect2.height);
-			}
-		} else {
-			lime.ui.MouseEventManager.eventInfo.x = event.clientX;
-			lime.ui.MouseEventManager.eventInfo.y = event.clientY;
-		}
-	} else {
-		lime.ui.MouseEventManager.eventInfo.x = event.deltaX;
-		lime.ui.MouseEventManager.eventInfo.y = event.deltaY;
-	}
-	lime.ui.MouseEventManager.eventInfo.button = event.button;
-	var _g1 = lime.ui.MouseEventManager.eventInfo.type;
-	switch(_g1) {
-	case 0:
-		var listeners = lime.ui.MouseEventManager.onMouseDown.listeners;
-		var repeat = lime.ui.MouseEventManager.onMouseDown.repeat;
-		var length = listeners.length;
-		var i = 0;
-		while(i < length) {
-			listeners[i](lime.ui.MouseEventManager.eventInfo.x,lime.ui.MouseEventManager.eventInfo.y,lime.ui.MouseEventManager.eventInfo.button);
-			if(!repeat[i]) {
-				lime.ui.MouseEventManager.onMouseDown.remove(listeners[i]);
-				length--;
-			} else i++;
-		}
-		break;
-	case 1:
-		var listeners1 = lime.ui.MouseEventManager.onMouseUp.listeners;
-		var repeat1 = lime.ui.MouseEventManager.onMouseUp.repeat;
-		var length1 = listeners1.length;
-		var i1 = 0;
-		while(i1 < length1) {
-			listeners1[i1](lime.ui.MouseEventManager.eventInfo.x,lime.ui.MouseEventManager.eventInfo.y,lime.ui.MouseEventManager.eventInfo.button);
-			if(!repeat1[i1]) {
-				lime.ui.MouseEventManager.onMouseUp.remove(listeners1[i1]);
-				length1--;
-			} else i1++;
-		}
-		break;
-	case 2:
-		var listeners2 = lime.ui.MouseEventManager.onMouseMove.listeners;
-		var repeat2 = lime.ui.MouseEventManager.onMouseMove.repeat;
-		var length2 = listeners2.length;
-		var i2 = 0;
-		while(i2 < length2) {
-			listeners2[i2](lime.ui.MouseEventManager.eventInfo.x,lime.ui.MouseEventManager.eventInfo.y,lime.ui.MouseEventManager.eventInfo.button);
-			if(!repeat2[i2]) {
-				lime.ui.MouseEventManager.onMouseMove.remove(listeners2[i2]);
-				length2--;
-			} else i2++;
-		}
-		break;
-	case 3:
-		var listeners3 = lime.ui.MouseEventManager.onMouseWheel.listeners;
-		var repeat3 = lime.ui.MouseEventManager.onMouseWheel.repeat;
-		var length3 = listeners3.length;
-		var i3 = 0;
-		while(i3 < length3) {
-			listeners3[i3](lime.ui.MouseEventManager.eventInfo.x,lime.ui.MouseEventManager.eventInfo.y);
-			if(!repeat3[i3]) {
-				lime.ui.MouseEventManager.onMouseWheel.remove(listeners3[i3]);
-				length3--;
-			} else i3++;
-		}
-		break;
-	}
-};
-lime.ui.MouseEventManager.registerWindow = function(_window) {
-	var events = ["mousedown","mousemove","mouseup","wheel"];
-	var _g = 0;
-	while(_g < events.length) {
-		var event = events[_g];
-		++_g;
-		_window.element.addEventListener(event,lime.ui.MouseEventManager.handleEvent,true);
-	}
-	lime.ui.MouseEventManager.window = _window;
-	window.document.addEventListener("dragstart",function(e) {
-		if(e.target.nodeName.toLowerCase() == "img") {
-			e.preventDefault();
-			return false;
-		}
-		return true;
-	},false);
-};
-lime.ui._MouseEventManager = {};
-lime.ui._MouseEventManager.MouseEventInfo = function(type,x,y,button) {
-	if(button == null) button = 0;
-	if(y == null) y = 0;
-	if(x == null) x = 0;
-	this.type = type;
-	this.x = x;
-	this.y = y;
-	this.button = button;
-};
-$hxClasses["lime.ui._MouseEventManager.MouseEventInfo"] = lime.ui._MouseEventManager.MouseEventInfo;
-lime.ui._MouseEventManager.MouseEventInfo.__name__ = ["lime","ui","_MouseEventManager","MouseEventInfo"];
-lime.ui._MouseEventManager.MouseEventInfo.prototype = {
-	clone: function() {
-		return new lime.ui._MouseEventManager.MouseEventInfo(this.type,this.x,this.y,this.button);
-	}
-	,__class__: lime.ui._MouseEventManager.MouseEventInfo
-};
 lime.ui.TouchEventManager = function() { };
 $hxClasses["lime.ui.TouchEventManager"] = lime.ui.TouchEventManager;
 lime.ui.TouchEventManager.__name__ = ["lime","ui","TouchEventManager"];
-lime.ui.TouchEventManager.eventInfo = null;
-lime.ui.TouchEventManager.window = null;
-lime.ui.TouchEventManager.create = function() {
-	lime.ui.TouchEventManager.eventInfo = new lime.ui._TouchEventManager.TouchEventInfo();
-};
-lime.ui.TouchEventManager.handleEvent = function(event) {
-	event.preventDefault();
-	var _g = event.type;
-	switch(_g) {
-	case "touchstart":
-		lime.ui.TouchEventManager.eventInfo.type = 0;
-		break;
-	case "touchmove":
-		lime.ui.TouchEventManager.eventInfo.type = 2;
-		break;
-	case "touchend":
-		lime.ui.TouchEventManager.eventInfo.type = 1;
-		break;
-	default:
-		lime.ui.TouchEventManager.eventInfo.type = null;
-	}
-	var touch = event.changedTouches[0];
-	lime.ui.TouchEventManager.eventInfo.id = touch.identifier;
-	if(lime.ui.TouchEventManager.window != null && lime.ui.TouchEventManager.window.element != null) {
-		if(lime.ui.TouchEventManager.window.canvas != null) {
-			var rect = lime.ui.TouchEventManager.window.canvas.getBoundingClientRect();
-			lime.ui.TouchEventManager.eventInfo.x = (touch.clientX - rect.left) * (lime.ui.TouchEventManager.window.width / rect.width);
-			lime.ui.TouchEventManager.eventInfo.y = (touch.clientY - rect.top) * (lime.ui.TouchEventManager.window.height / rect.height);
-		} else if(lime.ui.TouchEventManager.window.div != null) {
-			var rect1 = lime.ui.TouchEventManager.window.div.getBoundingClientRect();
-			lime.ui.TouchEventManager.eventInfo.x = touch.clientX - rect1.left;
-			lime.ui.TouchEventManager.eventInfo.y = touch.clientY - rect1.top;
-		} else {
-			var rect2 = lime.ui.TouchEventManager.window.element.getBoundingClientRect();
-			lime.ui.TouchEventManager.eventInfo.x = (touch.clientX - rect2.left) * (lime.ui.TouchEventManager.window.width / rect2.width);
-			lime.ui.TouchEventManager.eventInfo.y = (touch.clientY - rect2.top) * (lime.ui.TouchEventManager.window.height / rect2.height);
-		}
-	} else {
-		lime.ui.TouchEventManager.eventInfo.x = touch.clientX;
-		lime.ui.TouchEventManager.eventInfo.y = touch.clientY;
-	}
-	var _g1 = lime.ui.TouchEventManager.eventInfo.type;
-	switch(_g1) {
-	case 0:
-		var listeners = lime.ui.TouchEventManager.onTouchStart.listeners;
-		var repeat = lime.ui.TouchEventManager.onTouchStart.repeat;
-		var length = listeners.length;
-		var i = 0;
-		while(i < length) {
-			listeners[i](lime.ui.TouchEventManager.eventInfo.x,lime.ui.TouchEventManager.eventInfo.y,lime.ui.TouchEventManager.eventInfo.id);
-			if(!repeat[i]) {
-				lime.ui.TouchEventManager.onTouchStart.remove(listeners[i]);
-				length--;
-			} else i++;
-		}
-		break;
-	case 1:
-		var listeners1 = lime.ui.TouchEventManager.onTouchEnd.listeners;
-		var repeat1 = lime.ui.TouchEventManager.onTouchEnd.repeat;
-		var length1 = listeners1.length;
-		var i1 = 0;
-		while(i1 < length1) {
-			listeners1[i1](lime.ui.TouchEventManager.eventInfo.x,lime.ui.TouchEventManager.eventInfo.y,lime.ui.TouchEventManager.eventInfo.id);
-			if(!repeat1[i1]) {
-				lime.ui.TouchEventManager.onTouchEnd.remove(listeners1[i1]);
-				length1--;
-			} else i1++;
-		}
-		break;
-	case 2:
-		var listeners2 = lime.ui.TouchEventManager.onTouchMove.listeners;
-		var repeat2 = lime.ui.TouchEventManager.onTouchMove.repeat;
-		var length2 = listeners2.length;
-		var i2 = 0;
-		while(i2 < length2) {
-			listeners2[i2](lime.ui.TouchEventManager.eventInfo.x,lime.ui.TouchEventManager.eventInfo.y,lime.ui.TouchEventManager.eventInfo.id);
-			if(!repeat2[i2]) {
-				lime.ui.TouchEventManager.onTouchMove.remove(listeners2[i2]);
-				length2--;
-			} else i2++;
-		}
-		break;
-	}
-};
-lime.ui.TouchEventManager.registerWindow = function(window) {
-	window.element.addEventListener("touchstart",lime.ui.TouchEventManager.handleEvent,true);
-	window.element.addEventListener("touchmove",lime.ui.TouchEventManager.handleEvent,true);
-	window.element.addEventListener("touchend",lime.ui.TouchEventManager.handleEvent,true);
-	lime.ui.TouchEventManager.window = window;
-};
-lime.ui._TouchEventManager = {};
-lime.ui._TouchEventManager.TouchEventInfo = function(type,x,y,id) {
-	if(id == null) id = 0;
-	if(y == null) y = 0;
-	if(x == null) x = 0;
-	this.type = type;
-	this.x = x;
-	this.y = y;
-	this.id = id;
-};
-$hxClasses["lime.ui._TouchEventManager.TouchEventInfo"] = lime.ui._TouchEventManager.TouchEventInfo;
-lime.ui._TouchEventManager.TouchEventInfo.__name__ = ["lime","ui","_TouchEventManager","TouchEventInfo"];
-lime.ui._TouchEventManager.TouchEventInfo.prototype = {
-	clone: function() {
-		return new lime.ui._TouchEventManager.TouchEventInfo(this.type,this.x,this.y,this.id);
-	}
-	,__class__: lime.ui._TouchEventManager.TouchEventInfo
-};
-lime.ui._Window = {};
-lime.ui._Window.WindowEventInfo = function(type,width,height,x,y) {
-	if(y == null) y = 0;
-	if(x == null) x = 0;
-	if(height == null) height = 0;
-	if(width == null) width = 0;
-	this.type = type;
-	this.width = width;
-	this.height = height;
-	this.x = x;
-	this.y = y;
-};
-$hxClasses["lime.ui._Window.WindowEventInfo"] = lime.ui._Window.WindowEventInfo;
-lime.ui._Window.WindowEventInfo.__name__ = ["lime","ui","_Window","WindowEventInfo"];
-lime.ui._Window.WindowEventInfo.prototype = {
-	clone: function() {
-		return new lime.ui._Window.WindowEventInfo(this.type,this.width,this.height,this.x,this.y);
-	}
-	,__class__: lime.ui._Window.WindowEventInfo
-};
 lime.ui.Window = function(config) {
 	this.config = config;
-	if(!lime.ui.Window.registered) lime.ui.Window.registered = true;
+	this.backend = new lime._backend.html5.HTML5Window(this);
 };
 $hxClasses["lime.ui.Window"] = lime.ui.Window;
 lime.ui.Window.__name__ = ["lime","ui","Window"];
-lime.ui.Window.registered = null;
 lime.ui.Window.prototype = {
 	create: function(application) {
-		this.setWidth = this.width;
-		this.setHeight = this.height;
-		if(js.Boot.__instanceof(this.element,HTMLCanvasElement)) this.canvas = this.element; else this.canvas = window.document.createElement("canvas");
-		if(this.canvas != null) {
-			var style = this.canvas.style;
-			style.setProperty("-webkit-transform","translateZ(0)",null);
-			style.setProperty("transform","translateZ(0)",null);
-		} else if(this.div != null) {
-			var style1 = this.div.style;
-			style1.setProperty("-webkit-transform","translate3D(0,0,0)",null);
-			style1.setProperty("transform","translate3D(0,0,0)",null);
-			style1.position = "relative";
-			style1.overflow = "hidden";
-			style1.setProperty("-webkit-user-select","none",null);
-			style1.setProperty("-moz-user-select","none",null);
-			style1.setProperty("-ms-user-select","none",null);
-			style1.setProperty("-o-user-select","none",null);
-		}
-		if(this.width == 0 && this.height == 0) {
-			if(this.element != null) {
-				this.width = this.element.clientWidth;
-				this.height = this.element.clientHeight;
-			} else {
-				this.width = window.innerWidth;
-				this.height = window.innerHeight;
-			}
-			this.fullscreen = true;
-		}
-		if(this.canvas != null) {
-			this.canvas.width = this.width;
-			this.canvas.height = this.height;
-		} else {
-			this.div.style.width = this.width + "px";
-			this.div.style.height = this.height + "px";
-		}
-		this.handleDOMResize();
-		if(this.element != null) {
-			if(this.canvas != null) {
-				if(this.element != this.canvas) this.element.appendChild(this.canvas);
-			} else this.element.appendChild(this.div);
-		}
-		lime.ui.KeyEventManager.registerWindow(this);
-		lime.ui.MouseEventManager.registerWindow(this);
-		lime.ui.TouchEventManager.registerWindow(this);
-		window.addEventListener("focus",$bind(this,this.handleDOMEvent),false);
-		window.addEventListener("blur",$bind(this,this.handleDOMEvent),false);
-		window.addEventListener("resize",$bind(this,this.handleDOMEvent),false);
-		window.addEventListener("beforeunload",$bind(this,this.handleDOMEvent),false);
+		this.backend.create(application);
 		if(this.currentRenderer != null) this.currentRenderer.create();
 	}
-	,dispatch: function() {
-		var _g = lime.ui.Window.eventInfo.type;
-		switch(_g) {
-		case 0:
-			var listeners = lime.ui.Window.onWindowActivate.listeners;
-			var repeat = lime.ui.Window.onWindowActivate.repeat;
-			var length = listeners.length;
-			var i = 0;
-			while(i < length) {
-				listeners[i]();
-				if(!repeat[i]) {
-					lime.ui.Window.onWindowActivate.remove(listeners[i]);
-					length--;
-				} else i++;
-			}
-			break;
-		case 1:
-			var listeners1 = lime.ui.Window.onWindowClose.listeners;
-			var repeat1 = lime.ui.Window.onWindowClose.repeat;
-			var length1 = listeners1.length;
-			var i1 = 0;
-			while(i1 < length1) {
-				listeners1[i1]();
-				if(!repeat1[i1]) {
-					lime.ui.Window.onWindowClose.remove(listeners1[i1]);
-					length1--;
-				} else i1++;
-			}
-			break;
-		case 2:
-			var listeners2 = lime.ui.Window.onWindowDeactivate.listeners;
-			var repeat2 = lime.ui.Window.onWindowDeactivate.repeat;
-			var length2 = listeners2.length;
-			var i2 = 0;
-			while(i2 < length2) {
-				listeners2[i2]();
-				if(!repeat2[i2]) {
-					lime.ui.Window.onWindowDeactivate.remove(listeners2[i2]);
-					length2--;
-				} else i2++;
-			}
-			break;
-		case 3:
-			var listeners3 = lime.ui.Window.onWindowFocusIn.listeners;
-			var repeat3 = lime.ui.Window.onWindowFocusIn.repeat;
-			var length3 = listeners3.length;
-			var i3 = 0;
-			while(i3 < length3) {
-				listeners3[i3]();
-				if(!repeat3[i3]) {
-					lime.ui.Window.onWindowFocusIn.remove(listeners3[i3]);
-					length3--;
-				} else i3++;
-			}
-			break;
-		case 4:
-			var listeners4 = lime.ui.Window.onWindowFocusOut.listeners;
-			var repeat4 = lime.ui.Window.onWindowFocusOut.repeat;
-			var length4 = listeners4.length;
-			var i4 = 0;
-			while(i4 < length4) {
-				listeners4[i4]();
-				if(!repeat4[i4]) {
-					lime.ui.Window.onWindowFocusOut.remove(listeners4[i4]);
-					length4--;
-				} else i4++;
-			}
-			break;
-		case 5:
-			this.x = lime.ui.Window.eventInfo.x;
-			this.y = lime.ui.Window.eventInfo.y;
-			var listeners5 = lime.ui.Window.onWindowMove.listeners;
-			var repeat5 = lime.ui.Window.onWindowMove.repeat;
-			var length5 = listeners5.length;
-			var i5 = 0;
-			while(i5 < length5) {
-				listeners5[i5](lime.ui.Window.eventInfo.x,lime.ui.Window.eventInfo.y);
-				if(!repeat5[i5]) {
-					lime.ui.Window.onWindowMove.remove(listeners5[i5]);
-					length5--;
-				} else i5++;
-			}
-			break;
-		case 6:
-			this.width = lime.ui.Window.eventInfo.width;
-			this.height = lime.ui.Window.eventInfo.height;
-			var listeners6 = lime.ui.Window.onWindowResize.listeners;
-			var repeat6 = lime.ui.Window.onWindowResize.repeat;
-			var length6 = listeners6.length;
-			var i6 = 0;
-			while(i6 < length6) {
-				listeners6[i6](lime.ui.Window.eventInfo.width,lime.ui.Window.eventInfo.height);
-				if(!repeat6[i6]) {
-					lime.ui.Window.onWindowResize.remove(listeners6[i6]);
-					length6--;
-				} else i6++;
-			}
-			break;
-		}
-	}
-	,handleDOMEvent: function(event) {
-		var _g = event.type;
-		switch(_g) {
-		case "focus":
-			lime.ui.Window.eventInfo.type = 3;
-			this.dispatch();
-			lime.ui.Window.eventInfo.type = 0;
-			this.dispatch();
-			break;
-		case "blur":
-			lime.ui.Window.eventInfo.type = 4;
-			this.dispatch();
-			lime.ui.Window.eventInfo.type = 2;
-			this.dispatch();
-			break;
-		case "resize":
-			var cacheWidth = this.width;
-			var cacheHeight = this.height;
-			this.handleDOMResize();
-			if(this.width != cacheWidth || this.height != cacheHeight) {
-				lime.ui.Window.eventInfo.type = 6;
-				lime.ui.Window.eventInfo.width = this.width;
-				lime.ui.Window.eventInfo.height = this.height;
-				this.dispatch();
-			}
-			break;
-		case "beforeunload":
-			lime.ui.Window.eventInfo.type = 1;
-			this.dispatch();
-			break;
-		}
-	}
-	,handleDOMResize: function() {
-		var stretch = this.fullscreen || this.setWidth == 0 && this.setHeight == 0;
-		if(this.element != null && (this.div == null || this.div != null && stretch)) {
-			if(stretch) {
-				if(this.width != this.element.clientWidth || this.height != this.element.clientHeight) {
-					this.width = this.element.clientWidth;
-					this.height = this.element.clientHeight;
-					if(this.canvas != null) {
-						if(this.element != this.canvas) {
-							this.canvas.width = this.element.clientWidth;
-							this.canvas.height = this.element.clientHeight;
-						}
-					} else {
-						this.div.style.width = this.element.clientWidth + "px";
-						this.div.style.height = this.element.clientHeight + "px";
-					}
-				}
-			} else {
-				var scaleX = this.element.clientWidth / this.setWidth;
-				var scaleY = this.element.clientHeight / this.setHeight;
-				var currentRatio = scaleX / scaleY;
-				var targetRatio = Math.min(scaleX,scaleY);
-				if(this.canvas != null) {
-					if(this.element != this.canvas) {
-						this.canvas.style.width = this.setWidth * targetRatio + "px";
-						this.canvas.style.height = this.setHeight * targetRatio + "px";
-						this.canvas.style.marginLeft = (this.element.clientWidth - this.setWidth * targetRatio) / 2 + "px";
-						this.canvas.style.marginTop = (this.element.clientHeight - this.setHeight * targetRatio) / 2 + "px";
-					}
-				} else {
-					this.div.style.width = this.setWidth * targetRatio + "px";
-					this.div.style.height = this.setHeight * targetRatio + "px";
-					this.div.style.marginLeft = (this.element.clientWidth - this.setWidth * targetRatio) / 2 + "px";
-					this.div.style.marginTop = (this.element.clientHeight - this.setHeight * targetRatio) / 2 + "px";
-				}
-			}
-		}
-	}
 	,move: function(x,y) {
+		this.backend.move(x,y);
+		this.x = x;
+		this.y = y;
 	}
 	,resize: function(width,height) {
-		this.setWidth = width;
-		this.setHeight = height;
+		this.backend.resize(width,height);
+		this.width = width;
+		this.height = height;
 	}
 	,setIcon: function(image) {
 		if(image == null) return;
+		this.backend.setIcon(image);
 	}
 	,__class__: lime.ui.Window
 };
@@ -17252,7 +16772,12 @@ lime.utils.ByteArray.prototype = {
 			$r = aNeg1 != bNeg1?aNeg1:0 > length;
 			return $r;
 		}(this))) throw "Write error - Out of bounds";
-		if(length == 0) length = bytes.length;
+		if((function($this) {
+			var $r;
+			var $int = length;
+			$r = $int < 0?4294967296.0 + $int:$int + 0.0;
+			return $r;
+		}(this)) == 0) length = bytes.length;
 		var lengthToEnsure = this.position + length;
 		if(this.length < lengthToEnsure) {
 			if(this.allocated < lengthToEnsure) this.___resizeBuffer(this.allocated = Std["int"](Math.max(lengthToEnsure,this.allocated * 2))); else if(this.allocated > lengthToEnsure) this.___resizeBuffer(this.allocated = lengthToEnsure);
@@ -17867,29 +17392,24 @@ openfl.Memory._setPositionTemporarily = function(position,action) {
 	return value;
 };
 openfl.Memory.getByte = function(addr) {
-	if(addr < 0 || addr + 1 > openfl.Memory.len) throw "Bad address";
 	return openfl.Memory.gcRef.data.getInt8(addr);
 };
 openfl.Memory.getDouble = function(addr) {
-	if(addr < 0 || addr + 8 > openfl.Memory.len) throw "Bad address";
 	return openfl.Memory._setPositionTemporarily(addr,function() {
 		return openfl.Memory.gcRef.readDouble();
 	});
 };
 openfl.Memory.getFloat = function(addr) {
-	if(addr < 0 || addr + 4 > openfl.Memory.len) throw "Bad address";
 	return openfl.Memory._setPositionTemporarily(addr,function() {
 		return openfl.Memory.gcRef.readFloat();
 	});
 };
 openfl.Memory.getI32 = function(addr) {
-	if(addr < 0 || addr + 4 > openfl.Memory.len) throw "Bad address";
 	return openfl.Memory._setPositionTemporarily(addr,function() {
 		return openfl.Memory.gcRef.readInt();
 	});
 };
 openfl.Memory.getUI16 = function(addr) {
-	if(addr < 0 || addr + 2 > openfl.Memory.len) throw "Bad address";
 	return openfl.Memory._setPositionTemporarily(addr,function() {
 		return openfl.Memory.gcRef.readUnsignedShort();
 	});
@@ -17899,29 +17419,24 @@ openfl.Memory.select = function(inBytes) {
 	if(inBytes != null) openfl.Memory.len = inBytes.length; else openfl.Memory.len = 0;
 };
 openfl.Memory.setByte = function(addr,v) {
-	if(addr < 0 || addr + 1 > openfl.Memory.len) throw "Bad address";
 	openfl.Memory.gcRef.data.setUint8(addr,v);
 };
 openfl.Memory.setDouble = function(addr,v) {
-	if(addr < 0 || addr + 8 > openfl.Memory.len) throw "Bad address";
 	openfl.Memory._setPositionTemporarily(addr,function() {
 		openfl.Memory.gcRef.writeDouble(v);
 	});
 };
 openfl.Memory.setFloat = function(addr,v) {
-	if(addr < 0 || addr + 4 > openfl.Memory.len) throw "Bad address";
 	openfl.Memory._setPositionTemporarily(addr,function() {
 		openfl.Memory.gcRef.writeFloat(v);
 	});
 };
 openfl.Memory.setI16 = function(addr,v) {
-	if(addr < 0 || addr + 2 > openfl.Memory.len) throw "Bad address";
 	openfl.Memory._setPositionTemporarily(addr,function() {
 		openfl.Memory.gcRef.writeUnsignedShort(v);
 	});
 };
 openfl.Memory.setI32 = function(addr,v) {
-	if(addr < 0 || addr + 4 > openfl.Memory.len) throw "Bad address";
 	openfl.Memory._setPositionTemporarily(addr,function() {
 		openfl.Memory.gcRef.writeInt(v);
 	});
@@ -18966,8 +18481,8 @@ openfl._internal.renderer.canvas.CanvasGraphics.isCCW = function(x1,y1,x2,y2,x3,
 };
 openfl._internal.renderer.canvas.CanvasGraphics.normalizeUvt = function(uvt,skipT) {
 	if(skipT == null) skipT = false;
-	var max = -Infinity;
-	var tmp = -Infinity;
+	var max = Math.NEGATIVE_INFINITY;
+	var tmp = Math.NEGATIVE_INFINITY;
 	var len = uvt.length;
 	var _g1 = 1;
 	var _g = len + 1;
@@ -19991,7 +19506,7 @@ openfl._internal.renderer.opengl.utils.PathBuiler.build = function(graphics,gl) 
 				var color = command[3];
 				var thickness = command[2];
 				openfl._internal.renderer.opengl.utils.PathBuiler.__line = new openfl._internal.renderer.opengl.utils.LineStyle();
-				if(thickness == null || thickness == NaN || thickness < 0) openfl._internal.renderer.opengl.utils.PathBuiler.__line.width = 0; else if(thickness == 0) openfl._internal.renderer.opengl.utils.PathBuiler.__line.width = 1; else openfl._internal.renderer.opengl.utils.PathBuiler.__line.width = thickness;
+				if(thickness == null || thickness == Math.NaN || thickness < 0) openfl._internal.renderer.opengl.utils.PathBuiler.__line.width = 0; else if(thickness == 0) openfl._internal.renderer.opengl.utils.PathBuiler.__line.width = 1; else openfl._internal.renderer.opengl.utils.PathBuiler.__line.width = thickness;
 				if(openfl._internal.renderer.opengl.utils.PathBuiler.__currentPath.isRemovable && openfl._internal.renderer.opengl.utils.PathBuiler.__currentPath.points.length == 0) openfl._internal.renderer.opengl.utils.PathBuiler.__drawPaths.pop(); else openfl._internal.renderer.opengl.utils.PathBuiler.closePath();
 				openfl._internal.renderer.opengl.utils.PathBuiler.__line.color = color;
 				openfl._internal.renderer.opengl.utils.PathBuiler.__line.alpha = alpha1;
@@ -20960,7 +20475,7 @@ openfl._internal.renderer.opengl.utils.GraphicsRenderer.buildLine = function(pat
 	perpx = -(p1y - p2y);
 	perpy = p1x - p2x;
 	dist = Math.sqrt(Math.abs(perpx * perpx + perpy * perpy));
-	if(!isFinite(dist)) haxe.Log.trace(perpx * perpx + perpy * perpy,{ fileName : "GraphicsRenderer.hx", lineNumber : 372, className : "openfl._internal.renderer.opengl.utils.GraphicsRenderer", methodName : "buildLine"});
+	if(!Math.isFinite(dist)) haxe.Log.trace(perpx * perpx + perpy * perpy,{ fileName : "GraphicsRenderer.hx", lineNumber : 372, className : "openfl._internal.renderer.opengl.utils.GraphicsRenderer", methodName : "buildLine"});
 	perpx = perpx / dist;
 	perpy = perpy / dist;
 	perpx = perpx * width;
@@ -21918,6 +21433,10 @@ openfl._internal.renderer.opengl.utils.GraphicType.Ellipse.toString = $estr;
 openfl._internal.renderer.opengl.utils.GraphicType.Ellipse.__enum__ = openfl._internal.renderer.opengl.utils.GraphicType;
 openfl._internal.renderer.opengl.utils.GraphicType.DrawTriangles = function(vertices,indices,uvtData,culling,colors,blendMode) { var $x = ["DrawTriangles",4,vertices,indices,uvtData,culling,colors,blendMode]; $x.__enum__ = openfl._internal.renderer.opengl.utils.GraphicType; $x.toString = $estr; return $x; };
 openfl._internal.renderer.opengl.utils.GraphicType.DrawTiles = function(sheet,tileData,smooth,flags,count) { var $x = ["DrawTiles",5,sheet,tileData,smooth,flags,count]; $x.__enum__ = openfl._internal.renderer.opengl.utils.GraphicType; $x.toString = $estr; return $x; };
+openfl._internal.renderer.opengl.utils._GraphicsRenderer = {};
+openfl._internal.renderer.opengl.utils._GraphicsRenderer.RenderMode_Impl_ = function() { };
+$hxClasses["openfl._internal.renderer.opengl.utils._GraphicsRenderer.RenderMode_Impl_"] = openfl._internal.renderer.opengl.utils._GraphicsRenderer.RenderMode_Impl_;
+openfl._internal.renderer.opengl.utils._GraphicsRenderer.RenderMode_Impl_.__name__ = ["openfl","_internal","renderer","opengl","utils","_GraphicsRenderer","RenderMode_Impl_"];
 openfl._internal.renderer.opengl.utils.MaskManager = function(gl) {
 	this.maskStack = [];
 	this.maskPosition = 0;
@@ -23259,7 +22778,7 @@ openfl.display.Graphics.prototype = {
 		while(_g < commands.length) {
 			var command = commands.data[_g];
 			++_g;
-			if(command != null) switch(command) {
+			switch(command) {
 			case 1:
 				this.moveTo(data.data[dataIndex],data.data[dataIndex + 1]);
 				dataIndex += 2;
@@ -23277,7 +22796,6 @@ openfl.display.Graphics.prototype = {
 				dataIndex += 6;
 				break;
 			default:
-			} else {
 			}
 		}
 	}
@@ -23342,10 +22860,10 @@ openfl.display.Graphics.prototype = {
 			}
 		}
 		this.__inflateBounds(0,0);
-		var tmpx = -Infinity;
-		var tmpy = -Infinity;
-		var maxX = -Infinity;
-		var maxY = -Infinity;
+		var tmpx = Math.NEGATIVE_INFINITY;
+		var tmpy = Math.NEGATIVE_INFINITY;
+		var maxX = Math.NEGATIVE_INFINITY;
+		var maxY = Math.NEGATIVE_INFINITY;
 		var _g1 = 0;
 		while(_g1 < vlen) {
 			var i1 = _g1++;
@@ -29053,6 +28571,10 @@ openfl.text.FontType.EMBEDDED_CFF = ["EMBEDDED_CFF",2];
 openfl.text.FontType.EMBEDDED_CFF.toString = $estr;
 openfl.text.FontType.EMBEDDED_CFF.__enum__ = openfl.text.FontType;
 openfl.ui = {};
+openfl.ui._KeyLocation = {};
+openfl.ui._KeyLocation.KeyLocation_Impl_ = function() { };
+$hxClasses["openfl.ui._KeyLocation.KeyLocation_Impl_"] = openfl.ui._KeyLocation.KeyLocation_Impl_;
+openfl.ui._KeyLocation.KeyLocation_Impl_.__name__ = ["openfl","ui","_KeyLocation","KeyLocation_Impl_"];
 openfl.ui.Keyboard = function() { };
 $hxClasses["openfl.ui.Keyboard"] = openfl.ui.Keyboard;
 openfl.ui.Keyboard.__name__ = ["openfl","ui","Keyboard"];
@@ -29160,7 +28682,16 @@ function $bind(o,m) { if( m == null ) return null; if( m.__id__ == null ) m.__id
 if(Array.prototype.indexOf) HxOverrides.indexOf = function(a,o,i) {
 	return Array.prototype.indexOf.call(a,o,i);
 };
+Math.NaN = Number.NaN;
+Math.NEGATIVE_INFINITY = Number.NEGATIVE_INFINITY;
+Math.POSITIVE_INFINITY = Number.POSITIVE_INFINITY;
 $hxClasses.Math = Math;
+Math.isFinite = function(i) {
+	return isFinite(i);
+};
+Math.isNaN = function(i1) {
+	return isNaN(i1);
+};
 String.prototype.__class__ = $hxClasses.String = String;
 String.__name__ = ["String"];
 $hxClasses.Array = Array;
@@ -29268,8 +28799,14 @@ js.Boot.__toStr = {}.toString;
 lime.Assets.cache = new lime.AssetCache();
 lime.Assets.libraries = new haxe.ds.StringMap();
 lime.Assets.initialized = false;
+lime._Assets.AssetType_Impl_.BINARY = "BINARY";
+lime._Assets.AssetType_Impl_.FONT = "FONT";
+lime._Assets.AssetType_Impl_.IMAGE = "IMAGE";
+lime._Assets.AssetType_Impl_.MUSIC = "MUSIC";
+lime._Assets.AssetType_Impl_.SOUND = "SOUND";
+lime._Assets.AssetType_Impl_.TEMPLATE = "TEMPLATE";
+lime._Assets.AssetType_Impl_.TEXT = "TEXT";
 lime.app.Application.onUpdate = new lime.app.Event();
-lime.app.Application.__eventInfo = new lime.app._Application.UpdateEventInfo();
 lime.app.Preloader.images = new haxe.ds.StringMap();
 lime.app.Preloader.loaders = new haxe.ds.StringMap();
 lime.audio.openal.AL.NONE = 0;
@@ -29359,7 +28896,6 @@ lime.graphics.Image.__base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq
 lime.graphics.Renderer.onRenderContextLost = new lime.app.Event();
 lime.graphics.Renderer.onRenderContextRestored = new lime.app.Event();
 lime.graphics.Renderer.onRender = new lime.app.Event();
-lime.graphics.Renderer.eventInfo = new lime.graphics._Renderer.RenderEventInfo(0);
 lime.graphics.opengl.GL.DEPTH_BUFFER_BIT = 256;
 lime.graphics.opengl.GL.STENCIL_BUFFER_BIT = 1024;
 lime.graphics.opengl.GL.COLOR_BUFFER_BIT = 16384;
@@ -29660,13 +29196,590 @@ lime.graphics.opengl.GL.BROWSER_DEFAULT_WEBGL = 37444;
 lime.math._ColorMatrix.ColorMatrix_Impl_.__identity = [1.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0];
 lime.math.Matrix3.__identity = new lime.math.Matrix3();
 lime.math._Matrix4.Matrix4_Impl_.__identity = [1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,1.0];
+lime.net._URLRequestMethod.URLRequestMethod_Impl_.DELETE = "DELETE";
+lime.net._URLRequestMethod.URLRequestMethod_Impl_.GET = "GET";
+lime.net._URLRequestMethod.URLRequestMethod_Impl_.HEAD = "HEAD";
+lime.net._URLRequestMethod.URLRequestMethod_Impl_.OPTIONS = "OPTIONS";
+lime.net._URLRequestMethod.URLRequestMethod_Impl_.POST = "POST";
+lime.net._URLRequestMethod.URLRequestMethod_Impl_.PUT = "PUT";
 lime.net.curl._CURL.CURL_Impl_.GLOBAL_SSL = 1;
 lime.net.curl._CURL.CURL_Impl_.GLOBAL_WIN32 = 2;
 lime.net.curl._CURL.CURL_Impl_.GLOBAL_ALL = 3;
 lime.net.curl._CURL.CURL_Impl_.GLOBAL_NOTHING = 0;
 lime.net.curl._CURL.CURL_Impl_.GLOBAL_DEFAULT = 3;
 lime.net.curl._CURL.CURL_Impl_.GLOBAL_ACK_EINTR = 4;
+lime.net.curl._CURLCode.CURLCode_Impl_.OK = 0;
+lime.net.curl._CURLCode.CURLCode_Impl_.UNSUPPORTED_PROTOCOL = 1;
+lime.net.curl._CURLCode.CURLCode_Impl_.FAILED_INIT = 2;
+lime.net.curl._CURLCode.CURLCode_Impl_.URL_MALFORMAT = 3;
+lime.net.curl._CURLCode.CURLCode_Impl_.NOT_BUILT_IN = 4;
+lime.net.curl._CURLCode.CURLCode_Impl_.COULDNT_RESOLVE_PROXY = 5;
+lime.net.curl._CURLCode.CURLCode_Impl_.COULDNT_RESOLVE_HOST = 6;
+lime.net.curl._CURLCode.CURLCode_Impl_.COULDNT_CONNECT = 7;
+lime.net.curl._CURLCode.CURLCode_Impl_.FTP_WEIRD_SERVER_REPLY = 8;
+lime.net.curl._CURLCode.CURLCode_Impl_.REMOTE_ACCESS_DENIED = 9;
+lime.net.curl._CURLCode.CURLCode_Impl_.FTP_ACCEPT_FAILED = 10;
+lime.net.curl._CURLCode.CURLCode_Impl_.FTP_WEIRD_PASS_REPLY = 11;
+lime.net.curl._CURLCode.CURLCode_Impl_.FTP_ACCEPT_TIMEOUT = 12;
+lime.net.curl._CURLCode.CURLCode_Impl_.FTP_WEIRD_PASV_REPLY = 13;
+lime.net.curl._CURLCode.CURLCode_Impl_.FTP_WEIRD_227_FORMAT = 14;
+lime.net.curl._CURLCode.CURLCode_Impl_.FTP_CANT_GET_HOST = 15;
+lime.net.curl._CURLCode.CURLCode_Impl_.FTP_COULDNT_SET_TYPE = 17;
+lime.net.curl._CURLCode.CURLCode_Impl_.PARTIAL_FILE = 18;
+lime.net.curl._CURLCode.CURLCode_Impl_.FTP_COULDNT_RETR_FILE = 19;
+lime.net.curl._CURLCode.CURLCode_Impl_.QUOTE_ERROR = 21;
+lime.net.curl._CURLCode.CURLCode_Impl_.HTTP_RETURNED_ERROR = 22;
+lime.net.curl._CURLCode.CURLCode_Impl_.WRITE_ERROR = 23;
+lime.net.curl._CURLCode.CURLCode_Impl_.UPLOAD_FAILED = 25;
+lime.net.curl._CURLCode.CURLCode_Impl_.READ_ERROR = 26;
+lime.net.curl._CURLCode.CURLCode_Impl_.OUT_OF_MEMORY = 27;
+lime.net.curl._CURLCode.CURLCode_Impl_.OPERATION_TIMEDOUT = 28;
+lime.net.curl._CURLCode.CURLCode_Impl_.FTP_PORT_FAILED = 30;
+lime.net.curl._CURLCode.CURLCode_Impl_.FTP_COULDNT_USE_REST = 31;
+lime.net.curl._CURLCode.CURLCode_Impl_.RANGE_ERROR = 33;
+lime.net.curl._CURLCode.CURLCode_Impl_.HTTP_POST_ERROR = 34;
+lime.net.curl._CURLCode.CURLCode_Impl_.SSL_CONNECT_ERROR = 35;
+lime.net.curl._CURLCode.CURLCode_Impl_.BAD_DOWNLOAD_RESUME = 36;
+lime.net.curl._CURLCode.CURLCode_Impl_.FILE_COULDNT_READ_FILE = 37;
+lime.net.curl._CURLCode.CURLCode_Impl_.LDAP_CANNOT_BIND = 38;
+lime.net.curl._CURLCode.CURLCode_Impl_.LDAP_SEARCH_FAILED = 39;
+lime.net.curl._CURLCode.CURLCode_Impl_.FUNCTION_NOT_FOUND = 41;
+lime.net.curl._CURLCode.CURLCode_Impl_.ABORTED_BY_CALLBACK = 42;
+lime.net.curl._CURLCode.CURLCode_Impl_.BAD_FUNCTION_ARGUMENT = 43;
+lime.net.curl._CURLCode.CURLCode_Impl_.INTERFACE_FAILED = 45;
+lime.net.curl._CURLCode.CURLCode_Impl_.TOO_MANY_REDIRECTS = 47;
+lime.net.curl._CURLCode.CURLCode_Impl_.UNKNOWN_OPTION = 48;
+lime.net.curl._CURLCode.CURLCode_Impl_.TELNET_OPTION_SYNTAX = 49;
+lime.net.curl._CURLCode.CURLCode_Impl_.PEER_FAILED_VERIFICATION = 51;
+lime.net.curl._CURLCode.CURLCode_Impl_.GOT_NOTHING = 52;
+lime.net.curl._CURLCode.CURLCode_Impl_.SSL_ENGINE_NOTFOUND = 53;
+lime.net.curl._CURLCode.CURLCode_Impl_.SSL_ENGINE_SETFAILED = 54;
+lime.net.curl._CURLCode.CURLCode_Impl_.SEND_ERROR = 55;
+lime.net.curl._CURLCode.CURLCode_Impl_.RECV_ERROR = 56;
+lime.net.curl._CURLCode.CURLCode_Impl_.SSL_CERTPROBLEM = 58;
+lime.net.curl._CURLCode.CURLCode_Impl_.SSL_CIPHER = 59;
+lime.net.curl._CURLCode.CURLCode_Impl_.SSL_CACERT = 60;
+lime.net.curl._CURLCode.CURLCode_Impl_.BAD_CONTENT_ENCODING = 61;
+lime.net.curl._CURLCode.CURLCode_Impl_.LDAP_INVALID_URL = 62;
+lime.net.curl._CURLCode.CURLCode_Impl_.FILESIZE_EXCEEDED = 63;
+lime.net.curl._CURLCode.CURLCode_Impl_.USE_SSL_FAILED = 64;
+lime.net.curl._CURLCode.CURLCode_Impl_.SEND_FAIL_REWIND = 65;
+lime.net.curl._CURLCode.CURLCode_Impl_.SSL_ENGINE_INITFAILED = 66;
+lime.net.curl._CURLCode.CURLCode_Impl_.LOGIN_DENIED = 67;
+lime.net.curl._CURLCode.CURLCode_Impl_.TFTP_NOTFOUND = 68;
+lime.net.curl._CURLCode.CURLCode_Impl_.TFTP_PERM = 69;
+lime.net.curl._CURLCode.CURLCode_Impl_.REMOTE_DISK_FULL = 70;
+lime.net.curl._CURLCode.CURLCode_Impl_.TFTP_ILLEGAL = 71;
+lime.net.curl._CURLCode.CURLCode_Impl_.TFTP_UNKNOWNID = 72;
+lime.net.curl._CURLCode.CURLCode_Impl_.REMOTE_FILE_EXISTS = 73;
+lime.net.curl._CURLCode.CURLCode_Impl_.TFTP_NOSUCHUSER = 74;
+lime.net.curl._CURLCode.CURLCode_Impl_.CONV_FAILED = 75;
+lime.net.curl._CURLCode.CURLCode_Impl_.CONV_REQD = 76;
+lime.net.curl._CURLCode.CURLCode_Impl_.SSL_CACERT_BADFILE = 77;
+lime.net.curl._CURLCode.CURLCode_Impl_.REMOTE_FILE_NOT_FOUND = 78;
+lime.net.curl._CURLCode.CURLCode_Impl_.SSH = 79;
+lime.net.curl._CURLCode.CURLCode_Impl_.SSL_SHUTDOWN_FAILED = 80;
+lime.net.curl._CURLCode.CURLCode_Impl_.AGAIN = 81;
+lime.net.curl._CURLCode.CURLCode_Impl_.SSL_CRL_BADFILE = 82;
+lime.net.curl._CURLCode.CURLCode_Impl_.SSL_ISSUER_ERROR = 83;
+lime.net.curl._CURLCode.CURLCode_Impl_.FTP_PRET_FAILED = 84;
+lime.net.curl._CURLCode.CURLCode_Impl_.RTSP_CSEQ_ERROR = 85;
+lime.net.curl._CURLCode.CURLCode_Impl_.RTSP_SESSION_ERROR = 86;
+lime.net.curl._CURLCode.CURLCode_Impl_.FTP_BAD_FILE_LIST = 87;
+lime.net.curl._CURLCode.CURLCode_Impl_.CHUNK_FAILED = 88;
+lime.net.curl._CURLCode.CURLCode_Impl_.NO_CONNECTION_AVAILABLE = 89;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.NONE = 0;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.EFFECTIVE_URL = 1048577;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.RESPONSE_CODE = 2097154;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.TOTAL_TIME = 3145731;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.NAMELOOKUP_TIME = 3145732;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.CONNECT_TIME = 3145733;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.PRETRANSFER_TIME = 3145734;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.SIZE_UPLOAD = 3145735;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.SIZE_DOWNLOAD = 3145736;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.SPEED_DOWNLOAD = 3145737;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.SPEED_UPLOAD = 3145738;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.HEADER_SIZE = 2097163;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.REQUEST_SIZE = 2097164;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.SSL_VERIFYRESULT = 2097165;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.FILETIME = 2097166;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.CONTENT_LENGTH_DOWNLOAD = 3145743;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.CONTENT_LENGTH_UPLOAD = 3145744;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.STARTTRANSFER_TIME = 3145745;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.CONTENT_TYPE = 1048594;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.REDIRECT_TIME = 3145747;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.REDIRECT_COUNT = 2097172;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.PRIVATE = 1048597;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.HTTP_CONNECTCODE = 2097174;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.HTTPAUTH_AVAIL = 2097175;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.PROXYAUTH_AVAIL = 2097176;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.OS_ERRNO = 2097177;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.NUM_CONNECTS = 2097178;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.SSL_ENGINES = 4194331;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.COOKIELIST = 4194332;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.LASTSOCKET = 2097181;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.FTP_ENTRY_PATH = 1048606;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.REDIRECT_URL = 1048607;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.PRIMARY_IP = 1048608;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.APPCONNECT_TIME = 3145761;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.CERTINFO = 4194338;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.CONDITION_UNMET = 2097187;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.RTSP_SESSION_ID = 1048612;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.RTSP_CLIENT_CSEQ = 2097189;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.RTSP_SERVER_CSEQ = 2097190;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.RTSP_CSEQ_RECV = 2097191;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.PRIMARY_PORT = 2097192;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.LOCAL_IP = 1048617;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.LOCAL_PORT = 2097194;
+lime.net.curl._CURLInfo.CURLInfo_Impl_.TLS_SESSION = 4194347;
+lime.net.curl._CURLOption.CURLOption_Impl_.URL = 10002;
+lime.net.curl._CURLOption.CURLOption_Impl_.PORT = 3;
+lime.net.curl._CURLOption.CURLOption_Impl_.PROXY = 10004;
+lime.net.curl._CURLOption.CURLOption_Impl_.USERPWD = 10005;
+lime.net.curl._CURLOption.CURLOption_Impl_.PROXYUSERPWD = 10006;
+lime.net.curl._CURLOption.CURLOption_Impl_.RANGE = 10007;
+lime.net.curl._CURLOption.CURLOption_Impl_.ERRORBUFFER = 10010;
+lime.net.curl._CURLOption.CURLOption_Impl_.WRITEFUNCTION = 20011;
+lime.net.curl._CURLOption.CURLOption_Impl_.READFUNCTION = 20012;
+lime.net.curl._CURLOption.CURLOption_Impl_.TIMEOUT = 13;
+lime.net.curl._CURLOption.CURLOption_Impl_.INFILESIZE = 14;
+lime.net.curl._CURLOption.CURLOption_Impl_.POSTFIELDS = 10015;
+lime.net.curl._CURLOption.CURLOption_Impl_.REFERER = 10016;
+lime.net.curl._CURLOption.CURLOption_Impl_.FTPPORT = 10017;
+lime.net.curl._CURLOption.CURLOption_Impl_.USERAGENT = 10018;
+lime.net.curl._CURLOption.CURLOption_Impl_.LOW_SPEED_LIMIT = 19;
+lime.net.curl._CURLOption.CURLOption_Impl_.LOW_SPEED_TIME = 20;
+lime.net.curl._CURLOption.CURLOption_Impl_.RESUME_FROM = 21;
+lime.net.curl._CURLOption.CURLOption_Impl_.COOKIE = 22;
+lime.net.curl._CURLOption.CURLOption_Impl_.HTTPHEADER = 10023;
+lime.net.curl._CURLOption.CURLOption_Impl_.RTSPHEADER = 10023;
+lime.net.curl._CURLOption.CURLOption_Impl_.HTTPPOST = 10024;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSLCERT = 10025;
+lime.net.curl._CURLOption.CURLOption_Impl_.KEYPASSWD = 10026;
+lime.net.curl._CURLOption.CURLOption_Impl_.CRLF = 27;
+lime.net.curl._CURLOption.CURLOption_Impl_.QUOTE = 10028;
+lime.net.curl._CURLOption.CURLOption_Impl_.WRITEHEADER = 10029;
+lime.net.curl._CURLOption.CURLOption_Impl_.HEADERDATA = 10029;
+lime.net.curl._CURLOption.CURLOption_Impl_.COOKIEFILE = 10031;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSLVERSION = 32;
+lime.net.curl._CURLOption.CURLOption_Impl_.TIMECONDITION = 33;
+lime.net.curl._CURLOption.CURLOption_Impl_.TIMEVALUE = 34;
+lime.net.curl._CURLOption.CURLOption_Impl_.CUSTOMREQUEST = 10036;
+lime.net.curl._CURLOption.CURLOption_Impl_.STDERR = 10037;
+lime.net.curl._CURLOption.CURLOption_Impl_.POSTQUOTE = 10039;
+lime.net.curl._CURLOption.CURLOption_Impl_.WRITEINFO = 10040;
+lime.net.curl._CURLOption.CURLOption_Impl_.VERBOSE = 41;
+lime.net.curl._CURLOption.CURLOption_Impl_.HEADER = 42;
+lime.net.curl._CURLOption.CURLOption_Impl_.NOPROGRESS = 43;
+lime.net.curl._CURLOption.CURLOption_Impl_.NOBODY = 44;
+lime.net.curl._CURLOption.CURLOption_Impl_.FAILONERROR = 45;
+lime.net.curl._CURLOption.CURLOption_Impl_.UPLOAD = 46;
+lime.net.curl._CURLOption.CURLOption_Impl_.POST = 47;
+lime.net.curl._CURLOption.CURLOption_Impl_.DIRLISTONLY = 48;
+lime.net.curl._CURLOption.CURLOption_Impl_.APPEND = 50;
+lime.net.curl._CURLOption.CURLOption_Impl_.NETRC = 51;
+lime.net.curl._CURLOption.CURLOption_Impl_.FOLLOWLOCATION = 52;
+lime.net.curl._CURLOption.CURLOption_Impl_.TRANSFERTEXT = 53;
+lime.net.curl._CURLOption.CURLOption_Impl_.PUT = 54;
+lime.net.curl._CURLOption.CURLOption_Impl_.PROGRESSFUNCTION = 20056;
+lime.net.curl._CURLOption.CURLOption_Impl_.PROGRESSDATA = 10057;
+lime.net.curl._CURLOption.CURLOption_Impl_.XFERINFODATA = 10057;
+lime.net.curl._CURLOption.CURLOption_Impl_.AUTOREFERER = 58;
+lime.net.curl._CURLOption.CURLOption_Impl_.PROXYPORT = 59;
+lime.net.curl._CURLOption.CURLOption_Impl_.POSTFIELDSIZE = 60;
+lime.net.curl._CURLOption.CURLOption_Impl_.HTTPPROXYTUNNEL = 61;
+lime.net.curl._CURLOption.CURLOption_Impl_.INTERFACE = 10062;
+lime.net.curl._CURLOption.CURLOption_Impl_.KRBLEVEL = 10063;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSL_VERIFYPEER = 64;
+lime.net.curl._CURLOption.CURLOption_Impl_.CAINFO = 10065;
+lime.net.curl._CURLOption.CURLOption_Impl_.MAXREDIRS = 68;
+lime.net.curl._CURLOption.CURLOption_Impl_.FILETIME = 69;
+lime.net.curl._CURLOption.CURLOption_Impl_.TELNETOPTIONS = 10070;
+lime.net.curl._CURLOption.CURLOption_Impl_.MAXCONNECTS = 71;
+lime.net.curl._CURLOption.CURLOption_Impl_.CLOSEPOLICY = 72;
+lime.net.curl._CURLOption.CURLOption_Impl_.FRESH_CONNECT = 74;
+lime.net.curl._CURLOption.CURLOption_Impl_.FORBID_REUSE = 75;
+lime.net.curl._CURLOption.CURLOption_Impl_.RANDOM_FILE = 10076;
+lime.net.curl._CURLOption.CURLOption_Impl_.EGDSOCKET = 10077;
+lime.net.curl._CURLOption.CURLOption_Impl_.CONNECTTIMEOUT = 78;
+lime.net.curl._CURLOption.CURLOption_Impl_.HEADERFUNCTION = 20079;
+lime.net.curl._CURLOption.CURLOption_Impl_.HTTPGET = 80;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSL_VERIFYHOST = 81;
+lime.net.curl._CURLOption.CURLOption_Impl_.COOKIEJAR = 10082;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSL_CIPHER_LIST = 10083;
+lime.net.curl._CURLOption.CURLOption_Impl_.HTTP_VERSION = 84;
+lime.net.curl._CURLOption.CURLOption_Impl_.FTP_USE_EPSV = 85;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSLCERTTYPE = 10086;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSLKEY = 10087;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSLKEYTYPE = 10088;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSLENGINE = 10089;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSLENGINE_DEFAULT = 90;
+lime.net.curl._CURLOption.CURLOption_Impl_.DNS_USE_GLOBAL_CACHE = 91;
+lime.net.curl._CURLOption.CURLOption_Impl_.DNS_CACHE_TIMEOUT = 92;
+lime.net.curl._CURLOption.CURLOption_Impl_.PREQUOTE = 10093;
+lime.net.curl._CURLOption.CURLOption_Impl_.DEBUGFUNCTION = 20094;
+lime.net.curl._CURLOption.CURLOption_Impl_.DEBUGDATA = 10095;
+lime.net.curl._CURLOption.CURLOption_Impl_.COOKIESESSION = 96;
+lime.net.curl._CURLOption.CURLOption_Impl_.CAPATH = 10097;
+lime.net.curl._CURLOption.CURLOption_Impl_.BUFFERSIZE = 98;
+lime.net.curl._CURLOption.CURLOption_Impl_.NOSIGNAL = 99;
+lime.net.curl._CURLOption.CURLOption_Impl_.SHARE = 10100;
+lime.net.curl._CURLOption.CURLOption_Impl_.PROXYTYPE = 101;
+lime.net.curl._CURLOption.CURLOption_Impl_.ACCEPT_ENCODING = 10102;
+lime.net.curl._CURLOption.CURLOption_Impl_.PRIVATE = 10103;
+lime.net.curl._CURLOption.CURLOption_Impl_.HTTP200ALIASES = 10104;
+lime.net.curl._CURLOption.CURLOption_Impl_.UNRESTRICTED_AUTH = 105;
+lime.net.curl._CURLOption.CURLOption_Impl_.FTP_USE_EPRT = 106;
+lime.net.curl._CURLOption.CURLOption_Impl_.HTTPAUTH = 107;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSL_CTX_FUNCTION = 20108;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSL_CTX_DATA = 10109;
+lime.net.curl._CURLOption.CURLOption_Impl_.FTP_CREATE_MISSING_DIRS = 110;
+lime.net.curl._CURLOption.CURLOption_Impl_.PROXYAUTH = 111;
+lime.net.curl._CURLOption.CURLOption_Impl_.FTP_RESPONSE_TIMEOUT = 112;
+lime.net.curl._CURLOption.CURLOption_Impl_.SERVER_RESPONSE_TIMEOUT = 112;
+lime.net.curl._CURLOption.CURLOption_Impl_.IPRESOLVE = 113;
+lime.net.curl._CURLOption.CURLOption_Impl_.MAXFILESIZE = 114;
+lime.net.curl._CURLOption.CURLOption_Impl_.INFILESIZE_LARGE = 30115;
+lime.net.curl._CURLOption.CURLOption_Impl_.RESUME_FROM_LARGE = 30116;
+lime.net.curl._CURLOption.CURLOption_Impl_.MAXFILESIZE_LARGE = 30117;
+lime.net.curl._CURLOption.CURLOption_Impl_.NETRC_FILE = 10118;
+lime.net.curl._CURLOption.CURLOption_Impl_.USE_SSL = 119;
+lime.net.curl._CURLOption.CURLOption_Impl_.POSTFIELDSIZE_LARGE = 30120;
+lime.net.curl._CURLOption.CURLOption_Impl_.TCP_NODELAY = 121;
+lime.net.curl._CURLOption.CURLOption_Impl_.FTPSSLAUTH = 129;
+lime.net.curl._CURLOption.CURLOption_Impl_.IOCTLFUNCTION = 20130;
+lime.net.curl._CURLOption.CURLOption_Impl_.IOCTLDATA = 10131;
+lime.net.curl._CURLOption.CURLOption_Impl_.FTP_ACCOUNT = 10134;
+lime.net.curl._CURLOption.CURLOption_Impl_.COOKIELIST = 10135;
+lime.net.curl._CURLOption.CURLOption_Impl_.IGNORE_CONTENT_LENGTH = 10136;
+lime.net.curl._CURLOption.CURLOption_Impl_.FTP_SKIP_PASV_IP = 137;
+lime.net.curl._CURLOption.CURLOption_Impl_.FTP_FILEMETHOD = 138;
+lime.net.curl._CURLOption.CURLOption_Impl_.LOCALPORT = 139;
+lime.net.curl._CURLOption.CURLOption_Impl_.LOCALPORTRANGE = 140;
+lime.net.curl._CURLOption.CURLOption_Impl_.CONNECT_ONLY = 141;
+lime.net.curl._CURLOption.CURLOption_Impl_.CONV_FROM_NETWORK_FUNCTION = 20142;
+lime.net.curl._CURLOption.CURLOption_Impl_.CONV_TO_NETWORK_FUNCTION = 20143;
+lime.net.curl._CURLOption.CURLOption_Impl_.CONV_FROM_UTF8_FUNCTION = 20144;
+lime.net.curl._CURLOption.CURLOption_Impl_.MAX_SEND_SPEED_LARGE = 30145;
+lime.net.curl._CURLOption.CURLOption_Impl_.MAX_RECV_SPEED_LARGE = 30146;
+lime.net.curl._CURLOption.CURLOption_Impl_.FTP_ALTERNATIVE_TO_USER = 10147;
+lime.net.curl._CURLOption.CURLOption_Impl_.SOCKOPTFUNCTION = 20148;
+lime.net.curl._CURLOption.CURLOption_Impl_.SOCKOPTDATA = 10149;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSL_SESSIONID_CACHE = 150;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSH_AUTH_TYPES = 151;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSH_PUBLIC_KEYFILE = 10152;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSH_PRIVATE_KEYFILE = 10153;
+lime.net.curl._CURLOption.CURLOption_Impl_.FTP_SSL_CCC = 154;
+lime.net.curl._CURLOption.CURLOption_Impl_.TIMEOUT_MS = 155;
+lime.net.curl._CURLOption.CURLOption_Impl_.CONNECTTIMEOUT_MS = 156;
+lime.net.curl._CURLOption.CURLOption_Impl_.HTTP_TRANSFER_DECODING = 157;
+lime.net.curl._CURLOption.CURLOption_Impl_.HTTP_CONTENT_DECODING = 158;
+lime.net.curl._CURLOption.CURLOption_Impl_.NEW_FILE_PERMS = 159;
+lime.net.curl._CURLOption.CURLOption_Impl_.NEW_DIRECTORY_PERMS = 160;
+lime.net.curl._CURLOption.CURLOption_Impl_.POSTREDIR = 161;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSH_HOST_PUBLIC_KEY_MD5 = 10162;
+lime.net.curl._CURLOption.CURLOption_Impl_.OPENSOCKETFUNCTION = 20163;
+lime.net.curl._CURLOption.CURLOption_Impl_.OPENSOCKETDATA = 10164;
+lime.net.curl._CURLOption.CURLOption_Impl_.COPYPOSTFIELDS = 10165;
+lime.net.curl._CURLOption.CURLOption_Impl_.PROXY_TRANSFER_MODE = 166;
+lime.net.curl._CURLOption.CURLOption_Impl_.SEEKFUNCTION = 20167;
+lime.net.curl._CURLOption.CURLOption_Impl_.SEEKDATA = 10168;
+lime.net.curl._CURLOption.CURLOption_Impl_.CRLFILE = 10169;
+lime.net.curl._CURLOption.CURLOption_Impl_.ISSUERCERT = 10170;
+lime.net.curl._CURLOption.CURLOption_Impl_.ADDRESS_SCOPE = 171;
+lime.net.curl._CURLOption.CURLOption_Impl_.CERTINFO = 172;
+lime.net.curl._CURLOption.CURLOption_Impl_.USERNAME = 10173;
+lime.net.curl._CURLOption.CURLOption_Impl_.PASSWORD = 10174;
+lime.net.curl._CURLOption.CURLOption_Impl_.PROXYUSERNAME = 10175;
+lime.net.curl._CURLOption.CURLOption_Impl_.PROXYPASSWORD = 10176;
+lime.net.curl._CURLOption.CURLOption_Impl_.NOPROXY = 10177;
+lime.net.curl._CURLOption.CURLOption_Impl_.TFTP_BLKSIZE = 178;
+lime.net.curl._CURLOption.CURLOption_Impl_.SOCKS5_GSSAPI_SERVICE = 10179;
+lime.net.curl._CURLOption.CURLOption_Impl_.SOCKS5_GSSAPI_NEC = 180;
+lime.net.curl._CURLOption.CURLOption_Impl_.PROTOCOLS = 181;
+lime.net.curl._CURLOption.CURLOption_Impl_.REDIR_PROTOCOLS = 182;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSH_KNOWNHOSTS = 10183;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSH_KEYFUNCTION = 20184;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSH_KEYDATA = 10185;
+lime.net.curl._CURLOption.CURLOption_Impl_.MAIL_FROM = 10186;
+lime.net.curl._CURLOption.CURLOption_Impl_.MAIL_RCPT = 10187;
+lime.net.curl._CURLOption.CURLOption_Impl_.FTP_USE_PRET = 188;
+lime.net.curl._CURLOption.CURLOption_Impl_.RTSP_REQUEST = 189;
+lime.net.curl._CURLOption.CURLOption_Impl_.RTSP_SESSION_ID = 10190;
+lime.net.curl._CURLOption.CURLOption_Impl_.RTSP_STREAM_URI = 10191;
+lime.net.curl._CURLOption.CURLOption_Impl_.RTSP_TRANSPORT = 10192;
+lime.net.curl._CURLOption.CURLOption_Impl_.RTSP_CLIENT_CSEQ = 193;
+lime.net.curl._CURLOption.CURLOption_Impl_.RTSP_SERVER_CSEQ = 194;
+lime.net.curl._CURLOption.CURLOption_Impl_.INTERLEAVEDATA = 10195;
+lime.net.curl._CURLOption.CURLOption_Impl_.INTERLEAVEFUNCTION = 20196;
+lime.net.curl._CURLOption.CURLOption_Impl_.WILDCARDMATCH = 197;
+lime.net.curl._CURLOption.CURLOption_Impl_.CHUNK_BGN_FUNCTION = 20198;
+lime.net.curl._CURLOption.CURLOption_Impl_.CHUNK_END_FUNCTION = 20199;
+lime.net.curl._CURLOption.CURLOption_Impl_.FNMATCH_FUNCTION = 20200;
+lime.net.curl._CURLOption.CURLOption_Impl_.CHUNK_DATA = 10201;
+lime.net.curl._CURLOption.CURLOption_Impl_.FNMATCH_DATA = 10202;
+lime.net.curl._CURLOption.CURLOption_Impl_.RESOLVE = 10203;
+lime.net.curl._CURLOption.CURLOption_Impl_.TLSAUTH_USERNAME = 10204;
+lime.net.curl._CURLOption.CURLOption_Impl_.TLSAUTH_PASSWORD = 10205;
+lime.net.curl._CURLOption.CURLOption_Impl_.TLSAUTH_TYPE = 10206;
+lime.net.curl._CURLOption.CURLOption_Impl_.TRANSFER_ENCODING = 207;
+lime.net.curl._CURLOption.CURLOption_Impl_.CLOSESOCKETFUNCTION = 20208;
+lime.net.curl._CURLOption.CURLOption_Impl_.CLOSESOCKETDATA = 10209;
+lime.net.curl._CURLOption.CURLOption_Impl_.GSSAPI_DELEGATION = 210;
+lime.net.curl._CURLOption.CURLOption_Impl_.DNS_SERVERS = 10211;
+lime.net.curl._CURLOption.CURLOption_Impl_.ACCEPTTIMEOUT_MS = 212;
+lime.net.curl._CURLOption.CURLOption_Impl_.TCP_KEEPALIVE = 213;
+lime.net.curl._CURLOption.CURLOption_Impl_.TCP_KEEPIDLE = 214;
+lime.net.curl._CURLOption.CURLOption_Impl_.TCP_KEEPINTVL = 215;
+lime.net.curl._CURLOption.CURLOption_Impl_.SSL_OPTIONS = 216;
+lime.net.curl._CURLOption.CURLOption_Impl_.MAIL_AUTH = 10217;
+lime.net.curl._CURLOption.CURLOption_Impl_.SASL_IR = 218;
+lime.net.curl._CURLOption.CURLOption_Impl_.XFERINFOFUNCTION = 20219;
+lime.net.curl._CURLOption.CURLOption_Impl_.XOAUTH2_BEARER = 10220;
+lime.net.curl._CURLOption.CURLOption_Impl_.DNS_INTERFACE = 10221;
+lime.net.curl._CURLOption.CURLOption_Impl_.DNS_LOCAL_IP4 = 10222;
+lime.net.curl._CURLOption.CURLOption_Impl_.DNS_LOCAL_IP6 = 10223;
+lime.net.curl._CURLOption.CURLOption_Impl_.LOGIN_OPTIONS = 10224;
+lime.net.curl._CURLVersion.CURLVersion_Impl_.FIRST = 0;
+lime.net.curl._CURLVersion.CURLVersion_Impl_.SECOND = 1;
+lime.net.curl._CURLVersion.CURLVersion_Impl_.THIRD = 2;
+lime.net.curl._CURLVersion.CURLVersion_Impl_.FOURTH = 3;
 lime.system.System.__moduleNames = null;
+lime.ui._KeyCode.KeyCode_Impl_.UNKNOWN = 0;
+lime.ui._KeyCode.KeyCode_Impl_.BACKSPACE = 8;
+lime.ui._KeyCode.KeyCode_Impl_.TAB = 9;
+lime.ui._KeyCode.KeyCode_Impl_.RETURN = 13;
+lime.ui._KeyCode.KeyCode_Impl_.ESCAPE = 27;
+lime.ui._KeyCode.KeyCode_Impl_.SPACE = 32;
+lime.ui._KeyCode.KeyCode_Impl_.EXCLAMATION = 33;
+lime.ui._KeyCode.KeyCode_Impl_.QUOTE = 34;
+lime.ui._KeyCode.KeyCode_Impl_.HASH = 35;
+lime.ui._KeyCode.KeyCode_Impl_.DOLLAR = 36;
+lime.ui._KeyCode.KeyCode_Impl_.PERCENT = 37;
+lime.ui._KeyCode.KeyCode_Impl_.AMPERSAND = 38;
+lime.ui._KeyCode.KeyCode_Impl_.SINGLE_QUOTE = 39;
+lime.ui._KeyCode.KeyCode_Impl_.LEFT_PARENTHESIS = 40;
+lime.ui._KeyCode.KeyCode_Impl_.RIGHT_PARENTHESIS = 41;
+lime.ui._KeyCode.KeyCode_Impl_.ASTERISK = 42;
+lime.ui._KeyCode.KeyCode_Impl_.PLUS = 43;
+lime.ui._KeyCode.KeyCode_Impl_.COMMA = 44;
+lime.ui._KeyCode.KeyCode_Impl_.MINUS = 45;
+lime.ui._KeyCode.KeyCode_Impl_.PERIOD = 46;
+lime.ui._KeyCode.KeyCode_Impl_.SLASH = 47;
+lime.ui._KeyCode.KeyCode_Impl_.NUMBER_0 = 48;
+lime.ui._KeyCode.KeyCode_Impl_.NUMBER_1 = 49;
+lime.ui._KeyCode.KeyCode_Impl_.NUMBER_2 = 50;
+lime.ui._KeyCode.KeyCode_Impl_.NUMBER_3 = 51;
+lime.ui._KeyCode.KeyCode_Impl_.NUMBER_4 = 52;
+lime.ui._KeyCode.KeyCode_Impl_.NUMBER_5 = 53;
+lime.ui._KeyCode.KeyCode_Impl_.NUMBER_6 = 54;
+lime.ui._KeyCode.KeyCode_Impl_.NUMBER_7 = 55;
+lime.ui._KeyCode.KeyCode_Impl_.NUMBER_8 = 56;
+lime.ui._KeyCode.KeyCode_Impl_.NUMBER_9 = 57;
+lime.ui._KeyCode.KeyCode_Impl_.COLON = 58;
+lime.ui._KeyCode.KeyCode_Impl_.SEMICOLON = 59;
+lime.ui._KeyCode.KeyCode_Impl_.LESS_THAN = 60;
+lime.ui._KeyCode.KeyCode_Impl_.EQUALS = 61;
+lime.ui._KeyCode.KeyCode_Impl_.GREATER_THAN = 62;
+lime.ui._KeyCode.KeyCode_Impl_.QUESTION = 63;
+lime.ui._KeyCode.KeyCode_Impl_.AT = 64;
+lime.ui._KeyCode.KeyCode_Impl_.LEFT_BRACKET = 91;
+lime.ui._KeyCode.KeyCode_Impl_.BACKSLASH = 92;
+lime.ui._KeyCode.KeyCode_Impl_.RIGHT_BRACKET = 93;
+lime.ui._KeyCode.KeyCode_Impl_.CARET = 94;
+lime.ui._KeyCode.KeyCode_Impl_.UNDERSCORE = 95;
+lime.ui._KeyCode.KeyCode_Impl_.GRAVE = 96;
+lime.ui._KeyCode.KeyCode_Impl_.A = 97;
+lime.ui._KeyCode.KeyCode_Impl_.B = 98;
+lime.ui._KeyCode.KeyCode_Impl_.C = 99;
+lime.ui._KeyCode.KeyCode_Impl_.D = 100;
+lime.ui._KeyCode.KeyCode_Impl_.E = 101;
+lime.ui._KeyCode.KeyCode_Impl_.F = 102;
+lime.ui._KeyCode.KeyCode_Impl_.G = 103;
+lime.ui._KeyCode.KeyCode_Impl_.H = 104;
+lime.ui._KeyCode.KeyCode_Impl_.I = 105;
+lime.ui._KeyCode.KeyCode_Impl_.J = 106;
+lime.ui._KeyCode.KeyCode_Impl_.K = 107;
+lime.ui._KeyCode.KeyCode_Impl_.L = 108;
+lime.ui._KeyCode.KeyCode_Impl_.M = 109;
+lime.ui._KeyCode.KeyCode_Impl_.N = 110;
+lime.ui._KeyCode.KeyCode_Impl_.O = 111;
+lime.ui._KeyCode.KeyCode_Impl_.P = 112;
+lime.ui._KeyCode.KeyCode_Impl_.Q = 113;
+lime.ui._KeyCode.KeyCode_Impl_.R = 114;
+lime.ui._KeyCode.KeyCode_Impl_.S = 115;
+lime.ui._KeyCode.KeyCode_Impl_.T = 116;
+lime.ui._KeyCode.KeyCode_Impl_.U = 117;
+lime.ui._KeyCode.KeyCode_Impl_.V = 118;
+lime.ui._KeyCode.KeyCode_Impl_.W = 119;
+lime.ui._KeyCode.KeyCode_Impl_.X = 120;
+lime.ui._KeyCode.KeyCode_Impl_.Y = 121;
+lime.ui._KeyCode.KeyCode_Impl_.Z = 122;
+lime.ui._KeyCode.KeyCode_Impl_.DELETE = 127;
+lime.ui._KeyCode.KeyCode_Impl_.CAPS_LOCK = 1073741881;
+lime.ui._KeyCode.KeyCode_Impl_.F1 = 1073741882;
+lime.ui._KeyCode.KeyCode_Impl_.F2 = 1073741883;
+lime.ui._KeyCode.KeyCode_Impl_.F3 = 1073741884;
+lime.ui._KeyCode.KeyCode_Impl_.F4 = 1073741885;
+lime.ui._KeyCode.KeyCode_Impl_.F5 = 1073741886;
+lime.ui._KeyCode.KeyCode_Impl_.F6 = 1073741887;
+lime.ui._KeyCode.KeyCode_Impl_.F7 = 1073741888;
+lime.ui._KeyCode.KeyCode_Impl_.F8 = 1073741889;
+lime.ui._KeyCode.KeyCode_Impl_.F9 = 1073741890;
+lime.ui._KeyCode.KeyCode_Impl_.F10 = 1073741891;
+lime.ui._KeyCode.KeyCode_Impl_.F11 = 1073741892;
+lime.ui._KeyCode.KeyCode_Impl_.F12 = 1073741893;
+lime.ui._KeyCode.KeyCode_Impl_.PRINT_SCREEN = 1073741894;
+lime.ui._KeyCode.KeyCode_Impl_.SCROLL_LOCK = 1073741895;
+lime.ui._KeyCode.KeyCode_Impl_.PAUSE = 1073741896;
+lime.ui._KeyCode.KeyCode_Impl_.INSERT = 1073741897;
+lime.ui._KeyCode.KeyCode_Impl_.HOME = 1073741898;
+lime.ui._KeyCode.KeyCode_Impl_.PAGE_UP = 1073741899;
+lime.ui._KeyCode.KeyCode_Impl_.END = 1073741901;
+lime.ui._KeyCode.KeyCode_Impl_.PAGE_DOWN = 1073741902;
+lime.ui._KeyCode.KeyCode_Impl_.RIGHT = 1073741903;
+lime.ui._KeyCode.KeyCode_Impl_.LEFT = 1073741904;
+lime.ui._KeyCode.KeyCode_Impl_.DOWN = 1073741905;
+lime.ui._KeyCode.KeyCode_Impl_.UP = 1073741906;
+lime.ui._KeyCode.KeyCode_Impl_.NUM_LOCK = 1073741907;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_DIVIDE = 1073741908;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_MULTIPLY = 1073741909;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_MINUS = 1073741910;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_PLUS = 1073741911;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_ENTER = 1073741912;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_1 = 1073741913;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_2 = 1073741914;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_3 = 1073741915;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_4 = 1073741916;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_5 = 1073741917;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_6 = 1073741918;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_7 = 1073741919;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_8 = 1073741920;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_9 = 1073741921;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_0 = 1073741922;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_PERIOD = 1073741923;
+lime.ui._KeyCode.KeyCode_Impl_.APPLICATION = 1073741925;
+lime.ui._KeyCode.KeyCode_Impl_.POWER = 1073741926;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_EQUALS = 1073741927;
+lime.ui._KeyCode.KeyCode_Impl_.F13 = 1073741928;
+lime.ui._KeyCode.KeyCode_Impl_.F14 = 1073741929;
+lime.ui._KeyCode.KeyCode_Impl_.F15 = 1073741930;
+lime.ui._KeyCode.KeyCode_Impl_.F16 = 1073741931;
+lime.ui._KeyCode.KeyCode_Impl_.F17 = 1073741932;
+lime.ui._KeyCode.KeyCode_Impl_.F18 = 1073741933;
+lime.ui._KeyCode.KeyCode_Impl_.F19 = 1073741934;
+lime.ui._KeyCode.KeyCode_Impl_.F20 = 1073741935;
+lime.ui._KeyCode.KeyCode_Impl_.F21 = 1073741936;
+lime.ui._KeyCode.KeyCode_Impl_.F22 = 1073741937;
+lime.ui._KeyCode.KeyCode_Impl_.F23 = 1073741938;
+lime.ui._KeyCode.KeyCode_Impl_.F24 = 1073741939;
+lime.ui._KeyCode.KeyCode_Impl_.EXECUTE = 1073741940;
+lime.ui._KeyCode.KeyCode_Impl_.HELP = 1073741941;
+lime.ui._KeyCode.KeyCode_Impl_.MENU = 1073741942;
+lime.ui._KeyCode.KeyCode_Impl_.SELECT = 1073741943;
+lime.ui._KeyCode.KeyCode_Impl_.STOP = 1073741944;
+lime.ui._KeyCode.KeyCode_Impl_.AGAIN = 1073741945;
+lime.ui._KeyCode.KeyCode_Impl_.UNDO = 1073741946;
+lime.ui._KeyCode.KeyCode_Impl_.CUT = 1073741947;
+lime.ui._KeyCode.KeyCode_Impl_.COPY = 1073741948;
+lime.ui._KeyCode.KeyCode_Impl_.PASTE = 1073741949;
+lime.ui._KeyCode.KeyCode_Impl_.FIND = 1073741950;
+lime.ui._KeyCode.KeyCode_Impl_.MUTE = 1073741951;
+lime.ui._KeyCode.KeyCode_Impl_.VOLUME_UP = 1073741952;
+lime.ui._KeyCode.KeyCode_Impl_.VOLUME_DOWN = 1073741953;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_COMMA = 1073741957;
+lime.ui._KeyCode.KeyCode_Impl_.ALT_ERASE = 1073741977;
+lime.ui._KeyCode.KeyCode_Impl_.SYSTEM_REQUEST = 1073741978;
+lime.ui._KeyCode.KeyCode_Impl_.CANCEL = 1073741979;
+lime.ui._KeyCode.KeyCode_Impl_.CLEAR = 1073741980;
+lime.ui._KeyCode.KeyCode_Impl_.PRIOR = 1073741981;
+lime.ui._KeyCode.KeyCode_Impl_.RETURN2 = 1073741982;
+lime.ui._KeyCode.KeyCode_Impl_.SEPARATOR = 1073741983;
+lime.ui._KeyCode.KeyCode_Impl_.OUT = 1073741984;
+lime.ui._KeyCode.KeyCode_Impl_.OPER = 1073741985;
+lime.ui._KeyCode.KeyCode_Impl_.CLEAR_AGAIN = 1073741986;
+lime.ui._KeyCode.KeyCode_Impl_.CRSEL = 1073741987;
+lime.ui._KeyCode.KeyCode_Impl_.EXSEL = 1073741988;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_00 = 1073742000;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_000 = 1073742001;
+lime.ui._KeyCode.KeyCode_Impl_.THOUSAND_SEPARATOR = 1073742002;
+lime.ui._KeyCode.KeyCode_Impl_.DECIMAL_SEPARATOR = 1073742003;
+lime.ui._KeyCode.KeyCode_Impl_.CURRENCY_UNIT = 1073742004;
+lime.ui._KeyCode.KeyCode_Impl_.CURRENCY_SUBUNIT = 1073742005;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_LEFT_PARENTHESIS = 1073742006;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_RIGHT_PARENTHESIS = 1073742007;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_LEFT_BRACE = 1073742008;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_RIGHT_BRACE = 1073742009;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_TAB = 1073742010;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_BACKSPACE = 1073742011;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_A = 1073742012;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_B = 1073742013;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_C = 1073742014;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_D = 1073742015;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_E = 1073742016;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_F = 1073742017;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_XOR = 1073742018;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_POWER = 1073742019;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_PERCENT = 1073742020;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_LESS_THAN = 1073742021;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_GREATER_THAN = 1073742022;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_AMPERSAND = 1073742023;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_DOUBLE_AMPERSAND = 1073742024;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_VERTICAL_BAR = 1073742025;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_DOUBLE_VERTICAL_BAR = 1073742026;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_COLON = 1073742027;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_HASH = 1073742028;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_SPACE = 1073742029;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_AT = 1073742030;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_EXCLAMATION = 1073742031;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_MEM_STORE = 1073742032;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_MEM_RECALL = 1073742033;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_MEM_CLEAR = 1073742034;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_MEM_ADD = 1073742035;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_MEM_SUBTRACT = 1073742036;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_MEM_MULTIPLY = 1073742037;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_MEM_DIVIDE = 1073742038;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_PLUS_MINUS = 1073742039;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_CLEAR = 1073742040;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_CLEAR_ENTRY = 1073742041;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_BINARY = 1073742042;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_OCTAL = 1073742043;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_DECIMAL = 1073742044;
+lime.ui._KeyCode.KeyCode_Impl_.NUMPAD_HEXADECIMAL = 1073742045;
+lime.ui._KeyCode.KeyCode_Impl_.LEFT_CTRL = 1073742048;
+lime.ui._KeyCode.KeyCode_Impl_.LEFT_SHIFT = 1073742049;
+lime.ui._KeyCode.KeyCode_Impl_.LEFT_ALT = 1073742050;
+lime.ui._KeyCode.KeyCode_Impl_.LEFT_META = 1073742051;
+lime.ui._KeyCode.KeyCode_Impl_.RIGHT_CTRL = 1073742052;
+lime.ui._KeyCode.KeyCode_Impl_.RIGHT_SHIFT = 1073742053;
+lime.ui._KeyCode.KeyCode_Impl_.RIGHT_ALT = 1073742054;
+lime.ui._KeyCode.KeyCode_Impl_.RIGHT_META = 1073742055;
+lime.ui._KeyCode.KeyCode_Impl_.MODE = 1073742081;
+lime.ui._KeyCode.KeyCode_Impl_.AUDIO_NEXT = 1073742082;
+lime.ui._KeyCode.KeyCode_Impl_.AUDIO_PREVIOUS = 1073742083;
+lime.ui._KeyCode.KeyCode_Impl_.AUDIO_STOP = 1073742084;
+lime.ui._KeyCode.KeyCode_Impl_.AUDIO_PLAY = 1073742085;
+lime.ui._KeyCode.KeyCode_Impl_.AUDIO_MUTE = 1073742086;
+lime.ui._KeyCode.KeyCode_Impl_.MEDIA_SELECT = 1073742087;
+lime.ui._KeyCode.KeyCode_Impl_.WWW = 1073742088;
+lime.ui._KeyCode.KeyCode_Impl_.MAIL = 1073742089;
+lime.ui._KeyCode.KeyCode_Impl_.CALCULATOR = 1073742090;
+lime.ui._KeyCode.KeyCode_Impl_.COMPUTER = 1073742091;
+lime.ui._KeyCode.KeyCode_Impl_.APP_CONTROL_SEARCH = 1073742092;
+lime.ui._KeyCode.KeyCode_Impl_.APP_CONTROL_HOME = 1073742093;
+lime.ui._KeyCode.KeyCode_Impl_.APP_CONTROL_BACK = 1073742094;
+lime.ui._KeyCode.KeyCode_Impl_.APP_CONTROL_FORWARD = 1073742095;
+lime.ui._KeyCode.KeyCode_Impl_.APP_CONTROL_STOP = 1073742096;
+lime.ui._KeyCode.KeyCode_Impl_.APP_CONTROL_REFRESH = 1073742097;
+lime.ui._KeyCode.KeyCode_Impl_.APP_CONTROL_BOOKMARKS = 1073742098;
+lime.ui._KeyCode.KeyCode_Impl_.BRIGHTNESS_DOWN = 1073742099;
+lime.ui._KeyCode.KeyCode_Impl_.BRIGHTNESS_UP = 1073742100;
+lime.ui._KeyCode.KeyCode_Impl_.DISPLAY_SWITCH = 1073742101;
+lime.ui._KeyCode.KeyCode_Impl_.BACKLIGHT_TOGGLE = 1073742102;
+lime.ui._KeyCode.KeyCode_Impl_.BACKLIGHT_DOWN = 1073742103;
+lime.ui._KeyCode.KeyCode_Impl_.BACKLIGHT_UP = 1073742104;
+lime.ui._KeyCode.KeyCode_Impl_.EJECT = 1073742105;
+lime.ui._KeyCode.KeyCode_Impl_.SLEEP = 1073742106;
 lime.ui.KeyEventManager.onKeyDown = new lime.app.Event();
 lime.ui.KeyEventManager.onKeyUp = new lime.app.Event();
 lime.ui.MouseEventManager.onMouseDown = new lime.app.Event();
@@ -29683,7 +29796,6 @@ lime.ui.Window.onWindowFocusIn = new lime.app.Event();
 lime.ui.Window.onWindowFocusOut = new lime.app.Event();
 lime.ui.Window.onWindowMove = new lime.app.Event();
 lime.ui.Window.onWindowResize = new lime.app.Event();
-lime.ui.Window.eventInfo = new lime.ui._Window.WindowEventInfo();
 lime.utils.ByteArray.lime_byte_array_overwrite_file = lime.system.System.load("lime","lime_byte_array_overwrite_file",2);
 lime.utils.ByteArray.lime_byte_array_read_file = lime.system.System.load("lime","lime_byte_array_read_file",1);
 lime.utils.ByteArray.lime_lzma_decode = lime.system.System.load("lime","lime_lzma_decode",1);
@@ -29705,6 +29817,8 @@ openfl._internal.renderer.opengl.utils.GraphicsRenderer.graphicsDataPool = [];
 openfl._internal.renderer.opengl.utils.GraphicsRenderer.bucketPool = [];
 openfl._internal.renderer.opengl.utils.GraphicsRenderer.objectPosition = new openfl.geom.Point();
 openfl._internal.renderer.opengl.utils.GraphicsRenderer.objectBounds = new openfl.geom.Rectangle();
+openfl._internal.renderer.opengl.utils._GraphicsRenderer.RenderMode_Impl_.DEFAULT = 0;
+openfl._internal.renderer.opengl.utils._GraphicsRenderer.RenderMode_Impl_.STENCIL = 1;
 openfl.display.Graphics.TILE_SCALE = 1;
 openfl.display.Graphics.TILE_ROTATION = 2;
 openfl.display.Graphics.TILE_RGB = 4;
@@ -29820,6 +29934,10 @@ openfl.net.URLRequestMethod.POST = "POST";
 openfl.net.URLRequestMethod.PUT = "PUT";
 openfl.system.SecurityDomain.currentDomain = new openfl.system.SecurityDomain();
 openfl.text.Font.__registeredFonts = new Array();
+openfl.ui._KeyLocation.KeyLocation_Impl_.STANDARD = 0;
+openfl.ui._KeyLocation.KeyLocation_Impl_.LEFT = 1;
+openfl.ui._KeyLocation.KeyLocation_Impl_.RIGHT = 2;
+openfl.ui._KeyLocation.KeyLocation_Impl_.NUM_PAD = 3;
 openfl.ui.Keyboard.NUMBER_0 = 48;
 openfl.ui.Keyboard.NUMBER_1 = 49;
 openfl.ui.Keyboard.NUMBER_2 = 50;
@@ -30052,5 +30170,3 @@ openfl.ui.Keyboard.DOM_VK_EXECUTE = 43;
 openfl.ui.Keyboard.DOM_VK_SLEEP = 95;
 ApplicationMain.main();
 })(typeof window != "undefined" ? window : exports);
-
-//# sourceMappingURL=polygonal-multilayer.js.map
