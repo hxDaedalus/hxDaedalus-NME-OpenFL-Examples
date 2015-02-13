@@ -1005,6 +1005,7 @@ Main.prototype = $extend(openfl.display.Sprite.prototype,{
 	,findSubGraph: function(mX,mY) {
 		var subGraph = this.subGraphHitTest(mX,mY);
 		if(subGraph == null) return null;
+		if(subGraph.layer.hitTestConstraint(mX,mY)) return null;
 		return subGraph;
 	}
 	,clearMeshPoint: function() {
@@ -1250,7 +1251,8 @@ var Layer = function(scope,pos_,bmp_,name_) {
 	this.pos = pos_;
 	this.bmp = bmp_;
 	this.name = name_;
-	this.bmpDataOrig = this.bmp.bitmapData.clone();
+	this.bmpDataOrig = new openfl.display.BitmapData(this.bmp.bitmapData.width,this.bmp.bitmapData.height,true,0);
+	this.bmpDataOrig.copyPixels(this.bmp.bitmapData,this.bmp.bitmapData.rect,new openfl.geom.Point());
 	this.w = this.bmp.get_width();
 	this.h = this.bmp.get_height();
 	this.right = this.pos.x + this.w;

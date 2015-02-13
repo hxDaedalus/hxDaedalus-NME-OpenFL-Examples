@@ -157,10 +157,7 @@ class Main extends Sprite {
 	function findSubGraph( mX: Float, mY: Float ):SubGraph{
 		var subGraph = subGraphHitTest( mX, mY );
 		if( subGraph == null ) return null;
-		#if !js 
-		// js not working??
-			if( subGraph.layer.hitTestConstraint( mX, mY ) ) return null;
-		#end
+		if( subGraph.layer.hitTestConstraint( mX, mY ) ) return null;
 		return subGraph;
 	}
 	

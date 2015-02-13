@@ -18,6 +18,7 @@ import flash.display.BitmapData;
 import flash.display.Sprite;
 import flash.events.KeyboardEvent;
 import flash.geom.Matrix;
+import flash.geom.Point;
 
 
 class Layer{
@@ -50,7 +51,12 @@ class Layer{
 		bmp = bmp_;
 		name = name_;
 		// keep original image incase it's modified for hittest.
-		bmpDataOrig = bmp.bitmapData.clone();
+		#if html5
+	    	bmpDataOrig = new BitmapData(bmp.bitmapData.width, bmp.bitmapData.height, true, 0);
+	    	bmpDataOrig.copyPixels(bmp.bitmapData, bmp.bitmapData.rect, new Point());
+		#else
+			bmpDataOrig = bmp.bitmapData.clone();
+		#end
 		w = bmp.width;
 		h = bmp.height;
 		right = pos.x + w;
