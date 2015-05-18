@@ -71,11 +71,11 @@ class Main extends Sprite
     function _onKeyDown(event:KeyboardEvent):Void
     {
         if (event.keyCode == 27) {	// ESC
-            #if flash
-                flash.system.System.exit(1);
-            #elseif sys
-                Sys.exit(1);
-            #end
+		#if flash
+			flash.system.System.exit(1);
+		#elseif sys
+			Sys.exit(1);
+		#end
         }
     }
 }

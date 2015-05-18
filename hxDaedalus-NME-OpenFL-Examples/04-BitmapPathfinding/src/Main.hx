@@ -72,7 +72,6 @@ class Main extends Sprite {
 		_object = BitmapObject.buildFromBmpData( _bmp.bitmapData, 1.8 );
 		_object.x = 0;
 		_object.y = 0;
-		var s = haxe.Timer.stamp();
 		_mesh.insertObject( _object );
 		
 		// display result mesh
@@ -82,6 +81,7 @@ class Main extends Sprite {
 		
 		// stamp it on the overlay bitmap
 		_overlay.bitmapData.draw(viewSprite);
+		_view.graphics.clear();
 		
 		// we need an entity
 		_entityAI = new EntityAI();
@@ -133,9 +133,10 @@ class Main extends Sprite {
     }
     
     function _onEnterFrame( event: Event ): Void {
-		if (_newPath) _view.graphics.clear();
 		
 		if ( _newPath ) {
+			_view.graphics.clear();			
+			
 			// find path !
             _pathfinder.findPath( stage.mouseX, stage.mouseY, _path );
             
@@ -144,26 +145,30 @@ class Main extends Sprite {
             
 			// reset the path sampler to manage new generated path
             _pathSampler.reset();
+			
+			// show entity position on screen
+			_view.drawEntity(_entityAI, false);
         }
         
         // animate !
         if ( _pathSampler.hasNext ) {
 			// move entity
             _pathSampler.next();            
+			
+			// show entity position on screen
+			_view.drawEntity(_entityAI);
         }
             
-		// show entity position on screen
-		_view.drawEntity(_entityAI);
     }
 	
 	function _onKeyDown(event:KeyboardEvent):Void
 	{
 		if (event.keyCode == 27) {  // ESC
-			#if flash
-				flash.system.System.exit(1);
-			#elseif sys
-				Sys.exit(1);
-			#end
+		#if flash
+			flash.system.System.exit(1);
+		#elseif sys
+			Sys.exit(1);
+		#end
 		}
 	}
 }

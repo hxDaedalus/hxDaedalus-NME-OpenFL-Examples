@@ -99,7 +99,7 @@ class Main extends Sprite
         // then configure the path sampler
         pathSampler = new LinearPathSampler();
         pathSampler.entity = entityAI;
-        pathSampler.samplingDistance = 12;
+        pathSampler.samplingDistance = GridMaze.tileWidth * .7;
         pathSampler.path = path;
         
         // click/drag
@@ -182,6 +182,7 @@ class Main extends Sprite
 		}
         entityAI.radius = GridMaze.tileWidth * .27;
 		meshView.drawMesh(mesh, true);
+        pathSampler.samplingDistance = GridMaze.tileWidth * .7;
 		stampSprite(meshSprite, meshBMD, true);
 		pathfinder.mesh = mesh;
 		entityAI.x = GridMaze.tileWidth / 2;
