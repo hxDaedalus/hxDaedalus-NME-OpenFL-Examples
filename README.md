@@ -4,13 +4,11 @@ hxDaedalus-NME-OpenFL-Examples
 This is the Openfl/NME examples repository for the Haxe version of the as3 Daedalus-lib.
 
 
-https://github.com/Justinfront/hxDaedalus-Examples
+These examples require the latest Openfl/NME libs and current haxe hxDaedalus library, which can be found here:
 
-These examples require the current haxe hxDaedalus library, which can be found here:
+https://github.com/hxDaedalus/hxDaedalus
 
-https://github.com/Justinfront/hxDaedalus
-
-You can view some of the examples:
+You can view/download some of the examples:
 
  - 01-Basics: [flash](https://rawgit.com/Justinfront/hxDaedalus-NME-OpenFL-Examples/master/hxDaedalus-NME-OpenFL-Examples/01-Basics/bin/flash/bin/Basics.swf) | 
  [html5](https://rawgit.com/Justinfront/hxDaedalus-NME-OpenFL-Examples/master/hxDaedalus-NME-OpenFL-Examples/01-Basics/bin/html5/bin/index.html) | 
@@ -30,5 +28,7 @@ You can view some of the examples:
  - 06-Multilayer: [flash](https://rawgit.com/Justinfront/hxDaedalus-NME-OpenFL-Examples/master/hxDaedalus-NME-OpenFL-Examples/06-Multilayer/bin/flash/bin/polygonal-multilayer.swf) | 
  [html5](https://rawgit.com/Justinfront/hxDaedalus-NME-OpenFL-Examples/master/hxDaedalus-NME-OpenFL-Examples/06-Multilayer/bin/html5/bin/index.html) | 
  [android](https://rawgit.com/Justinfront/hxDaedalus-NME-OpenFL-Examples/master/hxDaedalus-NME-OpenFL-Examples/06-Multilayer/bin/android/bin/bin/polygonal-multilayer-debug.apk)
+
+If you have problems building from source try to pass `-Dv2` to the compiler.
  
 License is MIT.

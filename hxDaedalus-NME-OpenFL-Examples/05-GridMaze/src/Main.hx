@@ -11,9 +11,13 @@ import hxDaedalus.data.math.RandGenerator;
 import hxDaedalus.data.Vertex;
 import hxDaedalus.factories.RectMesh;
 import hxDaedalus.view.SimpleView;
+import openfl.display.Bitmap;
+import openfl.display.BitmapData;
 
 import flash.Lib;
 import flash.display.Sprite;
+import flash.display.Bitmap;
+import flash.display.BitmapData;
 import flash.events.Event;
 import flash.events.MouseEvent;
 import flash.events.KeyboardEvent;
@@ -23,9 +27,8 @@ class Main extends Sprite
 {
     
     var mesh : Mesh;
-    var view : SimpleView;
-	var entityView:SimpleView;
-	var meshView:SimpleView;
+    var meshView : SimpleView;
+    var pathView : SimpleView;
     
     var entityAI : EntityAI;
     var pathfinder : PathFinder;
@@ -36,6 +39,11 @@ class Main extends Sprite
 	
 	var rows:Int = 15;
 	var cols:Int = 15;
+
+	var meshBMD:BitmapData;
+	var pathBMD:BitmapData;
+	var pathSprite:Sprite;
+	var meshSprite:Sprite;
 	
     
     public static function main():Void {
@@ -48,24 +56,27 @@ class Main extends Sprite
 		// build a rectangular 2 polygons mesh of 600x600
         mesh = RectMesh.buildRectangle(600, 600);
         
-        // create a viewport
-		meshView = new SimpleView(this.graphics);
-		
-		var viewSprite = new Sprite();
-        view = new SimpleView(viewSprite.graphics);
-        addChild(viewSprite);
+        // create two viewports
+		pathSprite = new Sprite();
+		meshSprite = new Sprite();
         
-		var entitySprite = new Sprite();
-		entityView = new SimpleView(entitySprite.graphics);
-		addChild(entitySprite);
+		pathView = new SimpleView(pathSprite.graphics);
+		meshView = new SimpleView(meshSprite.graphics);
         
 		GridMaze.generate(600, 600, cols, rows);
 		mesh.insertObject(GridMaze.object);
 		
-		meshView.constraintsWidth = 4;
-        meshView.drawMesh(mesh);
+		meshBMD = new BitmapData(600, 600, true, 0);
+		addChild(new Bitmap(meshBMD));
 		
-        // we need an entity
+		pathBMD = new BitmapData(600, 600, true, 0);
+		addChild(new Bitmap(pathBMD));
+		
+        meshView.constraintsWidth = 4;
+		meshView.drawMesh(mesh);
+		stampSprite(meshSprite, meshBMD);
+		
+		// we need an entity
         entityAI = new EntityAI();
         // set radius as size for your entity
         entityAI.radius = GridMaze.tileWidth * .3;
@@ -74,7 +85,8 @@ class Main extends Sprite
         entityAI.y = GridMaze.tileHeight / 2;
         
         // show entity on screen
-        view.drawEntity(entityAI);
+        pathView.drawEntity(entityAI);
+		stampSprite(pathSprite, pathBMD);
         
         // now configure the pathfinder
         pathfinder = new PathFinder();
@@ -87,7 +99,7 @@ class Main extends Sprite
         // then configure the path sampler
         pathSampler = new LinearPathSampler();
         pathSampler.entity = entityAI;
-        pathSampler.samplingDistance = 12;
+        pathSampler.samplingDistance = GridMaze.tileWidth * .7;
         pathSampler.path = path;
         
         // click/drag
@@ -101,6 +113,11 @@ class Main extends Sprite
         Lib.current.stage.addEventListener(KeyboardEvent.KEY_DOWN, onKeyDown);
 	}
     
+	function stampSprite(sprite:Sprite, bitmapData:BitmapData, clearBefore:Bool = false) {
+		if (clearBefore) bitmapData.fillRect(bitmapData.rect, 0);
+		bitmapData.draw(sprite);
+	}
+	
     function onMouseUp( event: MouseEvent ): Void {
 		newPath = false;
     }
@@ -110,27 +127,32 @@ class Main extends Sprite
     }
     
     function onEnterFrame( event: Event ): Void {
-		if (newPath) view.graphics.clear();
-
         if ( newPath ) {
-            // find path !
+			pathView.graphics.clear();
+			
+			// find path !
             pathfinder.findPath( stage.mouseX, stage.mouseY, path );
             
 			// show path on screen
-            view.drawPath( path );
+            pathView.drawPath( path );
             
 			// reset the path sampler to manage new generated path
             pathSampler.reset();
+			
+			// show entity position on screen
+			pathView.drawEntity(entityAI);
+			stampSprite(pathSprite, pathBMD, true);
         }
         
         // animate !
         if ( pathSampler.hasNext ) {
             // move entity
             pathSampler.next();            
+			
+			// show entity position on screen
+			pathView.drawEntity(entityAI);
+			stampSprite(pathSprite, pathBMD);
         }
-		
-		// show entity position on screen
-		entityView.drawEntity(entityAI, true);
     }
     
     function onKeyDown( event:KeyboardEvent ): Void {
@@ -160,11 +182,13 @@ class Main extends Sprite
 		}
         entityAI.radius = GridMaze.tileWidth * .27;
 		meshView.drawMesh(mesh, true);
+        pathSampler.samplingDistance = GridMaze.tileWidth * .7;
+		stampSprite(meshSprite, meshBMD, true);
 		pathfinder.mesh = mesh;
 		entityAI.x = GridMaze.tileWidth / 2;
 		entityAI.y = GridMaze.tileHeight / 2;
-		entityView.graphics.clear();
-		view.graphics.clear();
+		pathView.drawEntity(entityAI, true);
+		stampSprite(pathSprite, pathBMD, true);
 		path = [];
 		pathSampler.path = path;
 	}

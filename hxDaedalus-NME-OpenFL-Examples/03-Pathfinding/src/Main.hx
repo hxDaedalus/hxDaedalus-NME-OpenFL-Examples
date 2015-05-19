@@ -126,10 +126,11 @@ class Main extends Sprite
     }
     
     function _onEnterFrame( event: Event ): Void {
-		if (_newPath) _view.graphics.clear();
-
+		
         if ( _newPath ) {
-            // find path !
+            _view.graphics.clear();
+			
+			// find path !
             _pathfinder.findPath( stage.mouseX, stage.mouseY, _path );
             
 			// show path on screen
@@ -137,16 +138,20 @@ class Main extends Sprite
             
 			// reset the path sampler to manage new generated path
             _pathSampler.reset();
+			
+			// show entity position on screen
+			_view.drawEntity(_entityAI, false);
         }
         
         // animate !
         if ( _pathSampler.hasNext ) {
             // move entity
             _pathSampler.next();            
+			
+			// show entity position on screen
+			_view.drawEntity(_entityAI);
         }
 		
-		// show entity position on screen
-		_view.drawEntity(_entityAI);
     }
     
     function _onKeyDown( event:KeyboardEvent ): Void {
